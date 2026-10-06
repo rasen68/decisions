@@ -22,6 +22,7 @@ class Arguments:
     input: str | None
     model: str
     raw: bool
+    graphic: bool
 
 
 class QuestionAction(argparse.Action):
@@ -56,7 +57,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-c", "--choice", dest="questions", action=QuestionAction, question_type="choice", nargs="+", metavar="ARG", help="QUESTION followed by choices; repeatable; options accept NAME: DESCRIPTION")
     parser.add_argument("-i", "--input", metavar="TEXT", help="shared input as one argument")
     parser.add_argument("-m", "--model", default="gpt-6-luna", help="model to use (default: %(default)s)")
-    parser.add_argument("-r", "--raw", action="store_true", help="print the complete original JSON response")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("-r", "--raw", action="store_true", help="print the complete original JSON response")
+    output.add_argument("-g", "--graphic", action="store_true", help="print probability bars under each question")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 
@@ -88,7 +91,7 @@ def parse_arguments(argv: list[str] | None = None) -> Arguments:
         parser.error("an input file and --input are mutually exclusive")
     if not namespace.model.strip():
         parser.error("--model must not be empty")
-    return Arguments(questions, question_file, input_file, namespace.input, namespace.model, namespace.raw)
+    return Arguments(questions, question_file, input_file, namespace.input, namespace.model, namespace.raw, namespace.graphic)
 
 
 def silence_broken_pipe() -> None:
@@ -112,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
             raise QuestionError("set OPENAI_API_KEY before making a request")
         input_text = read_input(arguments, sys.stdin)
         raw = request_decision(input_text, questions, arguments.model, api_key)
-        output = raw if arguments.raw else format_decision(json.loads(raw), questions)
+        output = raw if arguments.raw else format_decision(json.loads(raw), questions, graphic=arguments.graphic)
         sys.stdout.write(output)
         if not output.endswith("\n"):
             sys.stdout.write("\n")

@@ -35,6 +35,14 @@ class MainTests(unittest.TestCase):
         self.assertEqual(output, RAW + "\n")
         self.assertEqual(diagnostics, "")
 
+    def test_graphic_output_through_cli(self):
+        for flag in ("-g", "--graphic"):
+            with self.subTest(flag=flag):
+                code, output, diagnostics, _ = self.run_main([flag, "-p", "Damaged?", "-i", "text"])
+                self.assertEqual(code, 0)
+                self.assertEqual(output, "1. Damaged?\n  Probability: [██████████████████░░] 90.0%\n")
+                self.assertEqual(diagnostics, "")
+
     def test_question_file_to_request(self):
         with patch("decisions.cli.load_questions", return_value=[{"type": "predicate", "instructions": "Q"}]) as loader:
             code, _, _, request = self.run_main(["questions.toml", "-i", "text"])

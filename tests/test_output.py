@@ -22,12 +22,45 @@ class OutputTests(unittest.TestCase):
         self.assertIn("    true: 80.0%", text)
         self.assertIn('    "true": 20.0%', text)
 
+    def test_graphic_predicate_uses_actual_question_and_probability(self):
+        question = {"type": "predicate", "instructions": "Does the customer report damage?"}
+        response = {"answers": [{"type": "predicate", "probability": 0.75}]}
+        self.assertEqual(format_decision(response, [question], graphic=True),
+                         "1. Does the customer report damage?\n"
+                         "  Probability: [███████████████░░░░░] 75.0%")
+
+    def test_graphic_mixed_answers_keep_values_order_and_refusals(self):
+        questions = [
+            {"type": "score", "instructions": "How severe is the issue?", "levels": [{"label": "low"}, {"label": "high"}]},
+            {"type": "choice", "instructions": "Which department?", "choices": [{"value": True}, {"value": "true"}]},
+            {"type": "predicate", "instructions": "Restricted?"},
+        ]
+        response = {"answers": [
+            {"type": "score", "score": 1, "confidence": 0.8, "probabilities": [
+                {"value": 0, "label": "low", "probability": 0},
+                {"value": 1, "label": "high", "probability": 1}]},
+            {"type": "choice", "choice": True, "confidence": 0.8, "probabilities": [
+                {"value": True, "probability": 0.8},
+                {"value": "true", "probability": 0.2}]},
+            {"type": "refusal"},
+        ]}
+        text = format_decision(response, questions, graphic=True)
+        self.assertEqual(text, '1. How severe is the issue?\n'
+                         '  Score: 1.000 / 1\n  Confidence: 80.0%\n'
+                         '    0 (low): [░░░░░░░░░░░░░░░░░░░░] 0.0%\n'
+                         '    1 (high): [████████████████████] 100.0%\n\n'
+                         '2. Which department?\n  Choice: true\n  Confidence: 80.0%\n'
+                         '    true: [████████████████░░░░] 80.0%\n'
+                         '    "true": [████░░░░░░░░░░░░░░░░] 20.0%\n\n'
+                         '3. Restricted?\n  Refused')
+
     def test_malformed_answers_raise_useful_error(self):
         question = {"type": "predicate", "instructions": "Q"}
         cases = [{}, {"answers": []}, {"answers": [None]}, {"answers": [{"type": "predicate"}]}, {"answers": [{"type": "predicate", "probability": "high"}]}, {"answers": [{"type": "predicate", "probability": float("nan")}]}, {"answers": [{"type": "predicate", "probability": True}]}, {"answers": [{"type": "future"}]}, {"answers": [{"type": "choice", "choice": "a", "confidence": 0.7, "probabilities": []}]}]
         for response in cases:
-            with self.subTest(response=response), self.assertRaises(DecisionError):
-                format_decision(response, [question])
+            for graphic in (False, True):
+                with self.subTest(response=response, graphic=graphic), self.assertRaises(DecisionError):
+                    format_decision(response, [question], graphic=graphic)
 
 
 if __name__ == "__main__":

@@ -37,6 +37,20 @@ class ArgumentsTests(unittest.TestCase):
         args = self.parse("-c", "Department?", "billing : Payments: refunds", "support")
         self.assertEqual(args.questions[0]["choices"][0], {"value": "billing", "description": "Payments: refunds"})
 
+    def test_graphic_aliases(self):
+        for flag in ("-g", "--graphic"):
+            with self.subTest(flag=flag):
+                args = self.parse(flag, "-p", "Damaged?")
+                self.assertTrue(args.graphic)
+                self.assertFalse(args.raw)
+        self.assertFalse(self.parse("-p", "Damaged?").graphic)
+
+    def test_raw_and_graphic_are_mutually_exclusive(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as error:
+                self.parse("-g", "-r", "-p", "Damaged?")
+        self.assertEqual(error.exception.code, 2)
+
     def test_bad_arguments_exit_two(self):
         cases = [[], ["-s", "Severity?"], ["-c", "Department?"], ["-p", ""], ["-c", "Department?", ": description", "other"], ["-c", "Department?", "same", "same"], ["input.txt", "-p", "Damaged?", "-i", "text"], ["questions.json", "input.txt", "-p", "Damaged?"], ["-p", "Damaged?", "--mod", "other"], ["one.json", "two.txt", "three.txt"]]
         for arguments in cases:

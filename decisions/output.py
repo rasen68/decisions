@@ -28,7 +28,15 @@ def choice_value(value: Any) -> str:
     raise ValueError("choice values must be strings or booleans")
 
 
-def format_decision(response: dict[str, Any], questions: list[dict[str, Any]]) -> str:
+def probability_display(value: Any, graphic: bool) -> str:
+    text = percentage(value)
+    if graphic:
+        filled = round(value * 20)
+        return f"[{'█' * filled}{'░' * (20 - filled)}] {text}"
+    return text
+
+
+def format_decision(response: dict[str, Any], questions: list[dict[str, Any]], *, graphic: bool = False) -> str:
     answers = response.get("answers")
     if not isinstance(answers, list) or len(answers) != len(questions):
         raise DecisionError("OpenAI response must contain one answer per question")
@@ -47,7 +55,7 @@ def format_decision(response: dict[str, Any], questions: list[dict[str, Any]]) -
             elif kind != question["type"]:
                 raise ValueError("answer type does not match the question")
             elif kind == "predicate":
-                lines.append(f"  Probability: {percentage(answer['probability'])}")
+                lines.append(f"  Probability: {probability_display(answer['probability'], graphic)}")
             else:
                 if kind == "score":
                     score = number(answer["score"])
@@ -70,7 +78,7 @@ def format_decision(response: dict[str, Any], questions: list[dict[str, Any]]) -
                         label = f"{value:g} ({label})"
                     else:
                         label = choice_value(entry["value"])
-                    lines.append(f"    {label}: {percentage(entry['probability'])}")
+                    lines.append(f"    {label}: {probability_display(entry['probability'], graphic)}")
         except (KeyError, TypeError, ValueError, OverflowError) as error:
             raise DecisionError(f"invalid OpenAI answer {index}: {error}") from error
         blocks.append("\n".join(lines))
