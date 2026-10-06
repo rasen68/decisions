@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "decisions"
+version = "0.1.0"
+description = "Ask OpenAI Decisions questions from a Unix command line"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+decisions = "decisions.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["decisions"]

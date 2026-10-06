@@ -1,0 +1,23 @@
+[[questions]]
+type = "predicate"
+name = "damaged"
+instructions = "Does the customer report a damaged item?"
+
+[[questions]]
+type = "score"
+name = "severity"
+instructions = "How severe is the issue?"
+levels = [
+  { label = "low", description = "Cosmetic issue only." },
+  { label = "medium", description = "A task fails, but a workaround exists." },
+  { label = "high", description = "The product is unusable." },
+]
+
+[[questions]]
+type = "choice"
+name = "department"
+instructions = "Which department should handle this?"
+choices = [
+  { value = "billing", description = "Payments and refunds." },
+  { value = "support", description = "Broken products and technical problems." },
+]
