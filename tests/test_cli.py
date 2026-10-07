@@ -28,10 +28,22 @@ class ArgumentsTests(unittest.TestCase):
         self.assertEqual(args.input_file, "input.txt")
 
     def test_inline_input_and_model(self):
-        args = self.parse("-p", "Damaged?", "-i", "Broken screen", "--model", "future-model", "-r")
-        self.assertEqual(args.input, "Broken screen")
+        args = self.parse("-p", "Damaged?", "-t", "Broken screen", "--model", "future-model", "-r")
+        self.assertEqual(args.text, "Broken screen")
         self.assertEqual(args.model, "future-model")
         self.assertTrue(args.raw)
+
+    def test_text_and_repeated_image_aliases(self):
+        args = self.parse("-p", "Q", "--text", "Inspect both", "-i", "a.png", "--image", "b.jpg")
+        self.assertEqual(args.text, "Inspect both")
+        self.assertEqual(args.images, ["a.png", "b.jpg"])
+        self.assertIsNone(self.parse("-p", "Q", "-i", "a.png").text)
+
+    def test_old_input_flag_and_too_many_images_are_usage_errors(self):
+        for arguments in (["-p", "Q", "--input", "text"], ["-p", "Q"] + ["-i", "a.png"] * 129):
+            with self.subTest(arguments=arguments), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                self.parse(*arguments)
+            self.assertEqual(error.exception.code, 2)
 
     def test_split_only_first_colon(self):
         args = self.parse("-c", "Department?", "billing : Payments: refunds", "support")
@@ -61,7 +73,7 @@ class ArgumentsTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 2)
 
     def test_bad_arguments_exit_two(self):
-        cases = [[], ["-s", "Severity?"], ["-c", "Department?"], ["-p", ""], ["-c", "Department?", ": description", "other"], ["-c", "Department?", "same", "same"], ["input.txt", "-p", "Damaged?", "-i", "text"], ["questions.json", "input.txt", "-p", "Damaged?"], ["-p", "Damaged?", "--mod", "other"], ["one.json", "two.txt", "three.txt"]]
+        cases = [[], ["-s", "Severity?"], ["-c", "Department?"], ["-p", ""], ["-c", "Department?", ": description", "other"], ["-c", "Department?", "same", "same"], ["input.txt", "-p", "Damaged?", "-t", "text"], ["questions.json", "input.txt", "-p", "Damaged?"], ["-p", "Damaged?", "--mod", "other"], ["one.json", "two.txt", "three.txt"]]
         for arguments in cases:
             with self.subTest(arguments=arguments), contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit) as error:

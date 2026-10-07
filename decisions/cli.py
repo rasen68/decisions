@@ -20,7 +20,8 @@ class Arguments:
     questions: list[dict[str, Any]] | None
     question_file: str | None
     input_file: str | None
-    input: str | None
+    text: str | None
+    images: list[str]
     model: str
     raw: bool
     graphic: bool
@@ -48,17 +49,19 @@ class QuestionAction(argparse.Action):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="decisions",
-        description="Evaluate questions about shared text with OpenAI Decisions.",
+        description="Evaluate questions about text and images with OpenAI Decisions.",
         epilog="With question flags, FILE is the input file. Otherwise, use QUESTIONS.toml/json [INPUT]. "
         "Put input before the flags, or after -- when using --score or --choice. "
-        "If no input file or --input is given, read stdin. Set OPENAI_API_KEY for authentication.",
+        "If no input file, --text, or --image is given, read stdin. "
+        "With images, use - explicitly to include stdin. Set OPENAI_API_KEY for authentication.",
         allow_abbrev=False,
     )
     parser.add_argument("files", nargs="*", metavar="FILE", help="question file and/or input file; - reads input from stdin")
     parser.add_argument("-p", "--predicate", dest="questions", action=QuestionAction, question_type="predicate", metavar="QUESTION", help="estimate the probability that a condition is true; repeatable")
     parser.add_argument("-s", "--score", dest="questions", action=QuestionAction, question_type="score", nargs="+", metavar="ARG", help="QUESTION followed by ordered levels, lowest to highest; repeatable")
     parser.add_argument("-c", "--choice", dest="questions", action=QuestionAction, question_type="choice", nargs="+", metavar="ARG", help="QUESTION followed by choices; repeatable; options accept NAME: DESCRIPTION")
-    parser.add_argument("-i", "--input", metavar="TEXT", help="shared input as one argument")
+    parser.add_argument("-t", "--text", metavar="TEXT", help="shared text as one argument")
+    parser.add_argument("-i", "--image", dest="images", action="append", default=[], metavar="PATH", help="local image file; repeatable, up to 128 images; text is optional")
     parser.add_argument("-m", "--model", default="gpt-6-luna", help="model to use (default: %(default)s)")
     output = parser.add_mutually_exclusive_group()
     output.add_argument("-r", "--raw", action="store_true", help="print the complete original JSON response")
@@ -92,13 +95,15 @@ def parse_arguments(argv: list[str] | None = None) -> Arguments:
         question_file = namespace.files[0]
         if len(namespace.files) == 2:
             input_file = namespace.files[1]
-    if input_file is not None and namespace.input is not None:
-        parser.error("an input file and --input are mutually exclusive")
+    if input_file is not None and namespace.text is not None:
+        parser.error("an input file and --text are mutually exclusive")
+    if len(namespace.images) > 128:
+        parser.error("provide at most 128 images")
     if not namespace.model.strip():
         parser.error("--model must not be empty")
     if namespace.quiet and namespace.expression is None:
         parser.error("--quiet requires --eval")
-    return Arguments(questions, question_file, input_file, namespace.input, namespace.model, namespace.raw, namespace.graphic, namespace.expression, namespace.quiet)
+    return Arguments(questions, question_file, input_file, namespace.text, namespace.images, namespace.model, namespace.raw, namespace.graphic, namespace.expression, namespace.quiet)
 
 
 def silence_broken_pipe() -> None:
@@ -122,8 +127,8 @@ def main(argv: list[str] | None = None) -> int:
         api_key = os.environ.get("OPENAI_API_KEY", "").strip()
         if not api_key:
             raise QuestionError("set OPENAI_API_KEY before making a request")
-        input_text = read_input(arguments, sys.stdin)
-        raw = request_decision(input_text, questions, arguments.model, api_key)
+        input_data = read_input(arguments, sys.stdin)
+        raw = request_decision(input_data, questions, arguments.model, api_key)
         if evaluate is not None:
             response = json.loads(raw)
             readable = format_decision(response, questions, graphic=arguments.graphic)

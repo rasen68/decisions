@@ -14,8 +14,8 @@ class DecisionError(Exception):
     """An API request or response could not be used."""
 
 
-def request_decision(input_text: str, questions: list[dict[str, Any]], model: str, api_key: str) -> str:
-    body = json.dumps({"model": model, "input": input_text, "questions": questions}, ensure_ascii=False, allow_nan=False).encode("utf-8")
+def request_decision(input_data: str | list[dict[str, Any]], questions: list[dict[str, Any]], model: str, api_key: str) -> str:
+    body = json.dumps({"model": model, "input": input_data, "questions": questions}, ensure_ascii=False, allow_nan=False).encode("utf-8")
     request = Request(ENDPOINT, data=body, method="POST", headers={
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",

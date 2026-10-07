@@ -1,7 +1,8 @@
+import base64
 import io
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import decisions
 from decisions.cli import parse_arguments
@@ -37,7 +38,7 @@ class FilesTests(unittest.TestCase):
                     load_questions(filename)
 
     def test_input_argument_preserves_whitespace_and_beats_pipe(self):
-        args = parse_arguments(["-p", "Q", "-i", "  text\n"])
+        args = parse_arguments(["-p", "Q", "-t", "  text\n"])
         self.assertEqual(read_input(args, io.StringIO("ignored")), "  text\n")
 
     def test_input_file_is_always_text_even_if_json(self):
@@ -61,6 +62,36 @@ class FilesTests(unittest.TestCase):
         stream = io.StringIO("typed text")
         stream.isatty = lambda: True
         self.assertEqual(read_input(parse_arguments(["-", "-p", "Q"]), stream), "typed text")
+
+    def test_images_only_preserve_bytes_and_order_without_reading_stdin(self):
+        images = [b"\x89PNG\r\n\x1a\n\x00\xff", b"\xff\xd8\xff\x00\xff"]
+        args = parse_arguments(["-p", "Q", "-i", "front", "--image", "back"])
+        stream = Mock()
+        stream.read.side_effect = AssertionError("must not read stdin")
+        with patch.object(Path, "read_bytes", side_effect=images):
+            result = read_input(args, stream)
+        parts = result[0]["content"]
+        self.assertEqual(result[0]["role"], "user")
+        self.assertEqual(len(parts), 2)
+        for part, mime, data in zip(parts, ("image/png", "image/jpeg"), images):
+            self.assertEqual(part["type"], "input_image")
+            prefix, encoded = part["image_url"].split(",")
+            self.assertEqual(prefix, f"data:{mime};base64")
+            self.assertEqual(base64.b64decode(encoded), data)
+
+    def test_images_combine_with_explicit_text_sources(self):
+        cases = [(["-t", "  context\n"], "  context\n"), (["context.txt"], "file text"), (["-"], "pipe text")]
+        for source, expected in cases:
+            with self.subTest(source=source), patch.object(Path, "read_bytes", return_value=b"GIF89a\x00"), patch.object(Path, "read_text", return_value="file text"):
+                args = parse_arguments(["-p", "Q", "-i", "photo.gif"] + source)
+                parts = read_input(args, io.StringIO("pipe text"))[0]["content"]
+                self.assertEqual(parts[0], {"type": "input_text", "text": expected})
+                self.assertEqual(parts[1]["image_url"], "data:image/gif;base64,R0lGODlhAA==")
+
+    def test_image_format_comes_from_bytes(self):
+        with patch.object(Path, "read_bytes", return_value=b"RIFF\x00\x00\x00\x00WEBP\xff"):
+            result = read_input(parse_arguments(["-p", "Q", "-i", "misleading.jpg"]), io.StringIO())
+        self.assertTrue(result[0]["content"][0]["image_url"].startswith("data:image/webp;base64,"))
 
 
 if __name__ == "__main__":
