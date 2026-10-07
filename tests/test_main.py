@@ -22,6 +22,84 @@ class MainTests(unittest.TestCase):
                 code = exit.code
         return code, output.getvalue(), diagnostics.getvalue(), request
 
+    def test_gate_true_false_and_quiet(self):
+        for expression, expected in (("q1 >= .9", 0), ("q1 > .9", 1)):
+            with self.subTest(expression=expression):
+                code, output, diagnostics, request = self.run_main(["-p", "Q", "--eval", expression, "--quiet"])
+                self.assertEqual(code, expected)
+                self.assertEqual(output, "")
+                self.assertEqual(diagnostics, "")
+                request.assert_called_once()
+        code, output, _, _ = self.run_main(["-p", "Q", "--eval", "q1 > .9", "-r"])
+        self.assertEqual(code, 1)
+        self.assertEqual(output, RAW + "\n")
+
+    def test_named_mixed_gate_and_out_of_domain_choice(self):
+        import json
+        root = Path(decisions.__file__).resolve().parent.parent
+        response = {"answers": [
+            {"type": "predicate", "probability": 0.95},
+            {"type": "score", "score": 1.5, "confidence": 0.8, "probabilities": [
+                {"value": 0, "label": "low", "probability": 0.1},
+                {"value": 1, "label": "medium", "probability": 0.3},
+                {"value": 2, "label": "high", "probability": 0.6}]},
+            {"type": "choice", "choice": "support", "confidence": 0.9, "probabilities": [
+                {"value": "support", "probability": 0.9}, {"value": "billing", "probability": 0.1}]},
+        ]}
+        arguments = [str(root / "examples/questions.toml"), "--eval",
+                     'damaged >= .9 and severity >= 1.5 and severity.confidence >= .8 and department == "support" and department.confidence >= .9', "-q"]
+        code, output, diagnostics, request = self.run_main(arguments, response=json.dumps(response))
+        self.assertEqual((code, output, diagnostics), (0, "", ""))
+        request.assert_called_once()
+        self.assertEqual(len(request.call_args.args[1]), 3)
+        response["answers"][2]["choice"] = "unknown"
+        code, output, diagnostics, _ = self.run_main(arguments, response=json.dumps(response))
+        self.assertEqual(code, 2)
+        self.assertEqual(output, "")
+        self.assertIn("outside the supplied choices", diagnostics)
+
+    def test_non_selected_choice_probability_gate(self):
+        response = '{"answers":[{"type":"choice","choice":"support","confidence":0.8,"probabilities":[{"value":"support","probability":0.7},{"value":"billing","probability":0.3}]}]}'
+        arguments = ["-c", "Department?", "billing", "support", "--eval", 'q1["billing"] >= .3', "-q"]
+        code, output, diagnostics, request = self.run_main(arguments, response=response)
+        self.assertEqual((code, output, diagnostics), (0, "", ""))
+        request.assert_called_once()
+        arguments[-2] = 'q1 == "support" or q1["billing"] >= .3'
+        missing = '{"answers":[{"type":"choice","choice":"support","confidence":0.8,"probabilities":[{"value":"support","probability":1}]}]}'
+        code, output, diagnostics, _ = self.run_main(arguments, response=missing)
+        self.assertEqual(code, 2)
+        self.assertEqual(output, "")
+        self.assertIn("probability", diagnostics)
+        arguments[-2] = 'q1["missing"] >= .3'
+        code, _, _, request = self.run_main(arguments, response=response)
+        self.assertEqual(code, 2)
+        request.assert_not_called()
+
+    def test_gate_invalid_expression_never_sends_request(self):
+        for expression in ("q2 > .5", "q1.confidence > .5", "q1 > .5 or unknown > 0"):
+            code, output, diagnostics, request = self.run_main(["-p", "Q", "--eval", expression])
+            self.assertEqual(code, 2)
+            self.assertEqual(output, "")
+            self.assertIn("expression", diagnostics)
+            request.assert_not_called()
+
+    def test_gate_errors_and_refusals_cannot_pass_through_negation(self):
+        for response in ('{"answers":[{"type":"refusal"}]}', '{"answers":[{"type":"predicate","probability":2}]}', '{}'):
+            code, output, diagnostics, _ = self.run_main(["-p", "Q", "--eval", "not (q1 > .5)", "--quiet"], response=response)
+            self.assertEqual(code, 2)
+            self.assertEqual(output, "")
+            self.assertTrue(diagnostics)
+        code, _, _, _ = self.run_main(["-p", "Q", "--eval", "q1 > .5"], error=DecisionError("HTTP 429"))
+        self.assertEqual(code, 2)
+
+    def test_gate_checks_unreferenced_answers_before_short_circuiting(self):
+        response = '{"answers":[{"type":"predicate","probability":0.9},{"type":"refusal"}]}'
+        code, output, diagnostics, request = self.run_main(["-p", "Q", "-p", "Other", "--eval", "q1 >= .9 or q2 > .5", "--quiet"], response=response)
+        self.assertEqual(code, 2)
+        self.assertEqual(output, "")
+        self.assertIn("refused", diagnostics)
+        request.assert_called_once()
+
     def test_stdin_to_request_and_readable_stdout(self):
         code, output, diagnostics, request = self.run_main(["-p", "Damaged?"])
         self.assertEqual(code, 0)

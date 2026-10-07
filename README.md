@@ -36,6 +36,8 @@ decisions input.txt \
   -c "Which department should handle this?" "billing" "support"
 ```
 
+Note that the Decisions API requires that questions have names; if given from the command line, we just assign sequential names q1, q2, ...
+
 Score levels are ordered from lowest to highest. Option names become their descriptions unless you supply `name: description`. You can mix plain and described options. Flag options are strings; question files also support boolean choice values.
 
 ```sh
@@ -92,6 +94,24 @@ Raw output example:
 }
 ```
 
+## Boolean gates
+
+Use `--eval EXPR` to turn answers into an exit status based on a boolean expression. If given, instead of normal exit statuses, it returns 0 when the expression is true, 1 when false, and 2 for refusals and usage, configuration, file, API, or response errors.
+
+```sh
+decisions -p "Does the customer report damage?" -i "The screen arrived broken." \
+  --eval 'q1 >= 0.9' --quiet
+
+decisions examples/questions.toml input.txt --eval \
+  'damaged >= 0.9 and (severity >= 1.5 or department == "support" or department["billing"] >= 0.5)'
+```
+
+Reference questions by their names from a question file or by their position as `q1`, `q2`, and so on. Names used in expressions must be identifiers such as `damaged` or `needs_review`; use positional references for other names. Reference the probability of a predicate, the interpolated value of a score, or the maximum of a choice by its name. You can reference the confidence of a choice or score via `name.confidence`. You can reference the individual probability of an option of a choice via `name["option"]`.
+
+We support a Python-like expression grammar with `()`, `and/or/not`, `==/!=`, and `</<=/>/>=` for numeric fields. `not` binds before `and` which binds before `or`. Strings must be quoted.
+
+Answers still print by default, including when the expression is false. `--raw` and `--graphic` work with `--eval`. Use `-q/--quiet` to suppress answers; diagnostics still go to stderr. `--quiet` requires `--eval` and is mutually exclusive with `--raw` and `--graphic`.
+
 ## Development
 
 ```sh
@@ -99,11 +119,6 @@ python3 -B -m unittest discover -s tests -v
 ```
 
 Tests use synthetic keys and mocked HTTP. They make no live API calls.
-
-The implementation follows the [Decisions guide]
-and [API reference](https://developers.openai.com/api/reference/resources/decisions/methods/create).
-The API is currently in public beta and documents `gpt-6-luna` as its supported
-model. This CLI handles text input.
 
 ## AI use
 

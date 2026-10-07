@@ -51,6 +51,15 @@ class ArgumentsTests(unittest.TestCase):
                 self.parse("-g", "-r", "-p", "Damaged?")
         self.assertEqual(error.exception.code, 2)
 
+    def test_gate_arguments_and_quiet_exclusivity(self):
+        args = self.parse("-p", "Q", "--eval", "q1 >= .9", "-q")
+        self.assertEqual(args.expression, "q1 >= .9")
+        self.assertTrue(args.quiet)
+        for arguments in (("-p", "Q", "--quiet"), ("-p", "Q", "--eval", "q1 > 0", "-q", "-r")):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                self.parse(*arguments)
+            self.assertEqual(error.exception.code, 2)
+
     def test_bad_arguments_exit_two(self):
         cases = [[], ["-s", "Severity?"], ["-c", "Department?"], ["-p", ""], ["-c", "Department?", ": description", "other"], ["-c", "Department?", "same", "same"], ["input.txt", "-p", "Damaged?", "-i", "text"], ["questions.json", "input.txt", "-p", "Damaged?"], ["-p", "Damaged?", "--mod", "other"], ["one.json", "two.txt", "three.txt"]]
         for arguments in cases:
