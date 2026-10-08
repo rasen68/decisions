@@ -3,6 +3,8 @@
 import argparse
 import json
 import os
+import shlex
+import subprocess
 import sys
 from dataclasses import dataclass
 from typing import Any
@@ -27,6 +29,7 @@ class Arguments:
     graphic: bool
     expression: str | None
     quiet: bool
+    command: str | None
 
 
 class QuestionAction(argparse.Action):
@@ -68,6 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     output.add_argument("-g", "--graphic", action="store_true", help="print probability bars under each question")
     output.add_argument("-q", "--quiet", action="store_true", help="with --eval, suppress answers and use only the exit status")
     parser.add_argument("--eval", dest="expression", metavar="EXPR", help="evaluate comparisons joined by and/or/not; exit 0 if true, 1 if false, 2 on error")
+    parser.add_argument("-x", "--exec", dest="command", metavar="COMMAND", help="with --eval, run a shell command if true; unquoted {} receives a shell-quoted filename, stdin text, or --text value")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 
@@ -103,7 +107,14 @@ def parse_arguments(argv: list[str] | None = None) -> Arguments:
         parser.error("--model must not be empty")
     if namespace.quiet and namespace.expression is None:
         parser.error("--quiet requires --eval")
-    return Arguments(questions, question_file, input_file, namespace.text, namespace.images, namespace.model, namespace.raw, namespace.graphic, namespace.expression, namespace.quiet)
+    if namespace.command is not None:
+        if namespace.expression is None:
+            parser.error("--exec requires --eval")
+        if "{}" not in namespace.command:
+            parser.error("--exec requires an unquoted {} placeholder")
+        if len(namespace.images) > 1 or (namespace.images and (input_file is not None or namespace.text is not None)):
+            parser.error("--exec requires exactly one input source: text or one image")
+    return Arguments(questions, question_file, input_file, namespace.text, namespace.images, namespace.model, namespace.raw, namespace.graphic, namespace.expression, namespace.quiet, namespace.command)
 
 
 def silence_broken_pipe() -> None:
@@ -141,15 +152,28 @@ def main(argv: list[str] | None = None) -> int:
                 ):
                     raise DecisionError(f"invalid OpenAI answer {index}: choice is outside the supplied choices")
             result = 0 if evaluate(response["answers"]) else 1
-            if arguments.quiet:
-                return result
-            output = raw if arguments.raw else readable
+            output = "" if arguments.quiet else raw if arguments.raw else readable
         else:
             output = raw if arguments.raw else format_decision(json.loads(raw), questions, graphic=arguments.graphic)
-        sys.stdout.write(output)
-        if not output.endswith("\n"):
-            sys.stdout.write("\n")
-        sys.stdout.flush()
+        if not arguments.quiet:
+            sys.stdout.write(output)
+            if not output.endswith("\n"):
+                sys.stdout.write("\n")
+            sys.stdout.flush()
+        if arguments.command is not None and result == 0:
+            if arguments.images:
+                value = arguments.images[0]
+            elif arguments.input_file is not None and arguments.input_file != "-":
+                value = arguments.input_file
+            else:
+                value = input_data
+            command = arguments.command.replace("{}", shlex.quote(value))
+            try:
+                result = subprocess.run(command, shell=True).returncode
+            except ValueError as error:
+                raise DecisionError(f"cannot execute command: {error}") from error
+            if result < 0:
+                result = 128 - result
     except QuestionError as error:
         build_parser().error(str(error))
     except BrokenPipeError:

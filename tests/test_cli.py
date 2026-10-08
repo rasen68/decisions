@@ -72,6 +72,27 @@ class ArgumentsTests(unittest.TestCase):
                 self.parse(*arguments)
             self.assertEqual(error.exception.code, 2)
 
+    def test_exec_aliases_and_single_source(self):
+        for flag in ("-x", "--exec"):
+            for source in ([], ["-t", "text"], ["input.txt"], ["-"], ["-i", "image.png"]):
+                with self.subTest(flag=flag, source=source):
+                    args = self.parse("-p", "Q", "--eval", "q1 > .5", flag, "echo {}", *source)
+                    self.assertEqual(args.command, "echo {}")
+
+    def test_exec_invalid_usage(self):
+        cases = [
+            ["-x", "echo {}"],
+            ["--eval", "q1 > .5", "-x", "echo"],
+            ["--eval", "q1 > .5", "-x", "echo {}", "-i", "a.png", "-i", "b.png"],
+            ["--eval", "q1 > .5", "-x", "echo {}", "-i", "a.png", "-t", "context"],
+            ["--eval", "q1 > .5", "-x", "echo {}", "-i", "a.png", "input.txt"],
+            ["--eval", "q1 > .5", "-x", "echo {}", "-i", "a.png", "-"],
+        ]
+        for arguments in cases:
+            with self.subTest(arguments=arguments), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                self.parse("-p", "Q", *arguments)
+            self.assertEqual(error.exception.code, 2)
+
     def test_bad_arguments_exit_two(self):
         cases = [[], ["-s", "Severity?"], ["-c", "Department?"], ["-p", ""], ["-c", "Department?", ": description", "other"], ["-c", "Department?", "same", "same"], ["input.txt", "-p", "Damaged?", "-t", "text"], ["questions.json", "input.txt", "-p", "Damaged?"], ["-p", "Damaged?", "--mod", "other"], ["one.json", "two.txt", "three.txt"]]
         for arguments in cases:

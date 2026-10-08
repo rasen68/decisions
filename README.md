@@ -125,6 +125,24 @@ We support a Python-like expression grammar with `()`, `and/or/not`, `==/!=`, an
 
 Answers still print by default, including when the expression is false. `--raw` and `--graphic` work with `--eval`. Use `-q/--quiet` to suppress answers; diagnostics still go to stderr. `--quiet` requires `--eval` and is mutually exclusive with `--raw` and `--graphic`.
 
+## Conditional shell commands
+
+Use `-x/--exec COMMAND` with `--eval` to run a shell command (using `/bin/sh`, so pipes and other shell expressions work inside of the command) only when the expression is true, with `{}` as a substitute for the input:
+
+```sh
+decisions -p "Is the product damaged?" --image photo.png \
+  --eval 'q1 >= 0.9' --exec 'cp -- {} review/' --quiet
+
+printf '%s' 'The screen arrived broken.' | decisions -p "Does this report damage?" \
+  --eval 'q1 >= 0.9' --exec 'notify-send -- {}' --quiet
+```
+
+Exec mode requires exactly one input source: stdin, one text file, `--text`, or one `--image`. If a file is given (text or image), `{}` will be its filename. If raw text is given (stdin or `--text`), `{}` will be that text. The command must contain `{}`, unquoted.
+
+Answers print and flush before execution unless `--quiet` is set. The command inherits stdin, stdout, and stderr; `--quiet` does not suppress its output.
+
+A false expression returns 1 without execution. Evaluation errors or refusals return 2 without execution. When the command runs, its exit status is returned instead of the gate status (signals use `128 + signal`). Failure to start the shell returns 2; interruption returns 130.
+
 ## Development
 
 ```sh

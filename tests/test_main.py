@@ -55,6 +55,82 @@ class MainTests(unittest.TestCase):
                 code = exit.code
         return code, output.getvalue(), diagnostics.getvalue(), request
 
+    def test_exec_true_uses_quoted_text_and_child_status(self):
+        import shlex
+        text = "a 'quote'; $(touch unwanted)\nnext line"
+        for source, stdin in ((["-t", text], "unused"), ([], text), (["-"], text)):
+            with self.subTest(source=source), patch.object(Path, "read_text", return_value=text), patch("decisions.cli.subprocess.run") as run:
+                run.return_value.returncode = 7
+                code, output, diagnostics, request = self.run_main(["-p", "Q", "--eval", "q1 >= .9", "-x", "echo {}", *source], stdin=stdin)
+            self.assertEqual(code, 7)
+            self.assertIn("90.0%", output)
+            self.assertEqual(diagnostics, "")
+            request.assert_called_once()
+            run.assert_called_once_with("echo " + shlex.quote(text), shell=True)
+
+    def test_exec_text_file_passes_filename_but_evaluates_content(self):
+        import shlex
+        filename = "a 'text' file.txt"
+        with patch.object(Path, "read_text", return_value="file content") as read, patch("decisions.cli.subprocess.run") as run:
+            run.return_value.returncode = 0
+            code, output, diagnostics, request = self.run_main([filename, "-p", "Q", "--eval", "q1 >= .9", "-x", "cat -- {}", "-q"])
+        self.assertEqual((code, output, diagnostics), (0, "", ""))
+        self.assertEqual(request.call_args.args[0], "file content")
+        read.assert_called_once_with(encoding="utf-8")
+        run.assert_called_once_with("cat -- " + shlex.quote(filename), shell=True)
+
+    def test_exec_quiet_and_image_filename(self):
+        import shlex
+        filename = "an 'image'.png"
+        with patch.object(Path, "read_bytes", return_value=b"\x89PNG\r\n\x1a\n"), patch("decisions.cli.subprocess.run") as run:
+            run.return_value.returncode = 0
+            code, output, diagnostics, _ = self.run_main(["-p", "Q", "-i", filename, "--eval", "q1 >= .9", "--exec", "inspect {} {}", "-q"])
+        self.assertEqual((code, output, diagnostics), (0, "", ""))
+        run.assert_called_once_with("inspect " + shlex.quote(filename) + " " + shlex.quote(filename), shell=True)
+
+    def test_exec_never_runs_on_false_or_error(self):
+        cases = [
+            ("q1 > .9", RAW, None, 1),
+            ("q2 > .5", RAW, None, 2),
+            ("q1 > .5", '{"answers":[{"type":"refusal"}]}', None, 2),
+            ("q1 > .5", '{}', None, 2),
+            ("q1 > .5", RAW, DecisionError("API failure"), 2),
+        ]
+        for expression, response, error, expected in cases:
+            with self.subTest(expression=expression, response=response), patch("decisions.cli.subprocess.run") as run:
+                code, _, _, _ = self.run_main(["-p", "Q", "--eval", expression, "-x", "echo {}"], response=response, error=error)
+            self.assertEqual(code, expected)
+            run.assert_not_called()
+
+    def test_exec_start_failure_and_signal(self):
+        with patch("decisions.cli.subprocess.run", side_effect=OSError("cannot start shell")):
+            code, _, diagnostics, _ = self.run_main(["-p", "Q", "--eval", "q1 > .5", "-x", "echo {}"])
+        self.assertEqual(code, 2)
+        self.assertIn("cannot start shell", diagnostics)
+        with patch("decisions.cli.subprocess.run") as run:
+            run.return_value.returncode = -15
+            code, _, _, _ = self.run_main(["-p", "Q", "--eval", "q1 > .5", "-x", "echo {}"])
+        self.assertEqual(code, 143)
+
+    def test_exec_nul_text_reports_error_without_traceback(self):
+        code, _, diagnostics, _ = self.run_main(["-p", "Q", "-t", "a\x00b", "--eval", "q1 > .5", "-x", "echo {}", "-q"])
+        self.assertEqual(code, 2)
+        self.assertIn("cannot execute", diagnostics)
+
+    def test_exec_real_shell_preserves_text_without_injection(self):
+        import shlex
+        import sys
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "output.txt"
+            marker = Path(directory) / "injected"
+            text = f"quoted ' text; $(touch {marker})\nsecond line"
+            script = "import pathlib,sys; pathlib.Path(sys.argv[1]).write_text(sys.argv[2]); sys.exit(7)"
+            command = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)} {shlex.quote(str(target))} {{}}"
+            code, output, diagnostics, _ = self.run_main(["-p", "Q", "-t", text, "--eval", "q1 > .5", "-x", command, "-q"])
+            self.assertEqual((code, output, diagnostics), (7, "", ""))
+            self.assertEqual(target.read_text(), text)
+            self.assertFalse(marker.exists())
+
     def test_gate_true_false_and_quiet(self):
         for expression, expected in (("q1 >= .9", 0), ("q1 > .9", 1)):
             with self.subTest(expression=expression):
