@@ -1,8 +1,8 @@
 import unittest
 
-from decisions.api import DecisionError
-from decisions.evaluation import compile_expression
-from decisions.questions import QuestionError
+from decisions.cli.api import DecisionError
+from decisions.cli.evaluation import compile_expression
+from decisions.cli.questions import QuestionError
 
 
 class EvaluationTests(unittest.TestCase):

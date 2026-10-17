@@ -8,8 +8,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import decisions
+import httpx
 
-from decisions.api import DecisionError
+from decisions.cli.api import DecisionError
 from decisions.cli import main
 
 RAW = '{ "model": "gpt-6-luna", "answers": [{"type":"predicate","name":null,"probability":0.9}], "usage": {"total_tokens": 20} }'
@@ -22,10 +23,10 @@ class MainTests(unittest.TestCase):
             image = Path(directory) / "image.png"
             image.write_bytes(png)
             for text_args in ([], ["-t", "Inspect this"]):
-                with self.subTest(text_args=text_args), patch.dict("os.environ", {"OPENAI_API_KEY": "synthetic-key"}), patch("decisions.api.urlopen", return_value=io.BytesIO(RAW.encode())) as send, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with self.subTest(text_args=text_args), patch.dict("os.environ", {"OPENAI_API_KEY": "synthetic-key"}), patch("decisions.client.Client._send", return_value=httpx.Response(200, content=RAW.encode())) as send, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                     code = main(["-p", "Damaged?", "-i", str(image), "--eval", "q1 >= .9", "-q"] + text_args)
                 self.assertEqual(code, 0)
-                content = json.loads(send.call_args.args[0].data)["input"][0]["content"]
+                content = send.call_args.args[0]["input"][0]["content"]
                 self.assertEqual(len(content), 2 if text_args else 1)
                 self.assertEqual(base64.b64decode(content[-1]["image_url"].split(",")[1]), png)
                 if text_args:
@@ -48,7 +49,7 @@ class MainTests(unittest.TestCase):
 
     def run_main(self, arguments, stdin="pipe", key="synthetic-key", response=RAW, error=None):
         output, diagnostics = io.StringIO(), io.StringIO()
-        with patch("sys.stdin", io.StringIO(stdin)), patch.dict("os.environ", {"OPENAI_API_KEY": key}), patch("decisions.cli.request_decision", return_value=response, side_effect=error) as request, contextlib.redirect_stdout(output), contextlib.redirect_stderr(diagnostics):
+        with patch("sys.stdin", io.StringIO(stdin)), patch.dict("os.environ", {"OPENAI_API_KEY": key}), patch("decisions.cli.app.request_decision", return_value=response, side_effect=error) as request, contextlib.redirect_stdout(output), contextlib.redirect_stderr(diagnostics):
             try:
                 code = main(arguments)
             except SystemExit as exit:
@@ -59,7 +60,7 @@ class MainTests(unittest.TestCase):
         import shlex
         text = "a 'quote'; $(touch unwanted)\nnext line"
         for source, stdin in ((["-t", text], "unused"), ([], text), (["-"], text)):
-            with self.subTest(source=source), patch.object(Path, "read_text", return_value=text), patch("decisions.cli.subprocess.run") as run:
+            with self.subTest(source=source), patch.object(Path, "read_text", return_value=text), patch("decisions.cli.app.subprocess.run") as run:
                 run.return_value.returncode = 7
                 code, output, diagnostics, request = self.run_main(["-p", "Q", "--eval", "q1 >= .9", "-x", "echo {}", *source], stdin=stdin)
             self.assertEqual(code, 7)
@@ -71,7 +72,7 @@ class MainTests(unittest.TestCase):
     def test_exec_text_file_passes_filename_but_evaluates_content(self):
         import shlex
         filename = "a 'text' file.txt"
-        with patch.object(Path, "read_text", return_value="file content") as read, patch("decisions.cli.subprocess.run") as run:
+        with patch.object(Path, "read_text", return_value="file content") as read, patch("decisions.cli.app.subprocess.run") as run:
             run.return_value.returncode = 0
             code, output, diagnostics, request = self.run_main([filename, "-p", "Q", "--eval", "q1 >= .9", "-x", "cat -- {}", "-q"])
         self.assertEqual((code, output, diagnostics), (0, "", ""))
@@ -82,7 +83,7 @@ class MainTests(unittest.TestCase):
     def test_exec_quiet_and_image_filename(self):
         import shlex
         filename = "an 'image'.png"
-        with patch.object(Path, "read_bytes", return_value=b"\x89PNG\r\n\x1a\n"), patch("decisions.cli.subprocess.run") as run:
+        with patch.object(Path, "read_bytes", return_value=b"\x89PNG\r\n\x1a\n"), patch("decisions.cli.app.subprocess.run") as run:
             run.return_value.returncode = 0
             code, output, diagnostics, _ = self.run_main(["-p", "Q", "-i", filename, "--eval", "q1 >= .9", "--exec", "inspect {} {}", "-q"])
         self.assertEqual((code, output, diagnostics), (0, "", ""))
@@ -97,17 +98,17 @@ class MainTests(unittest.TestCase):
             ("q1 > .5", RAW, DecisionError("API failure"), 2),
         ]
         for expression, response, error, expected in cases:
-            with self.subTest(expression=expression, response=response), patch("decisions.cli.subprocess.run") as run:
+            with self.subTest(expression=expression, response=response), patch("decisions.cli.app.subprocess.run") as run:
                 code, _, _, _ = self.run_main(["-p", "Q", "--eval", expression, "-x", "echo {}"], response=response, error=error)
             self.assertEqual(code, expected)
             run.assert_not_called()
 
     def test_exec_start_failure_and_signal(self):
-        with patch("decisions.cli.subprocess.run", side_effect=OSError("cannot start shell")):
+        with patch("decisions.cli.app.subprocess.run", side_effect=OSError("cannot start shell")):
             code, _, diagnostics, _ = self.run_main(["-p", "Q", "--eval", "q1 > .5", "-x", "echo {}"])
         self.assertEqual(code, 2)
         self.assertIn("cannot start shell", diagnostics)
-        with patch("decisions.cli.subprocess.run") as run:
+        with patch("decisions.cli.app.subprocess.run") as run:
             run.return_value.returncode = -15
             code, _, _, _ = self.run_main(["-p", "Q", "--eval", "q1 > .5", "-x", "echo {}"])
         self.assertEqual(code, 143)
@@ -231,7 +232,7 @@ class MainTests(unittest.TestCase):
                 self.assertEqual(diagnostics, "")
 
     def test_question_file_to_request(self):
-        with patch("decisions.cli.load_questions", return_value=[{"type": "predicate", "instructions": "Q"}]) as loader:
+        with patch("decisions.cli.app.load_questions", return_value=[{"type": "predicate", "instructions": "Q"}]) as loader:
             code, _, _, request = self.run_main(["questions.toml", "-t", "text"])
         self.assertEqual(code, 0)
         loader.assert_called_once_with("questions.toml")
@@ -252,7 +253,7 @@ class MainTests(unittest.TestCase):
         self.assertNotIn("Traceback", diagnostics)
 
     def test_missing_input_file(self):
-        with patch("decisions.files.Path.read_text", side_effect=FileNotFoundError("missing.txt")):
+        with patch("decisions.cli.files.Path.read_text", side_effect=FileNotFoundError("missing.txt")):
             code, output, diagnostics, request = self.run_main(["missing.txt", "-p", "Q"])
         self.assertEqual(code, 1)
         self.assertEqual(output, "")
@@ -268,17 +269,17 @@ class MainTests(unittest.TestCase):
         root = Path(decisions.__file__).resolve().parent.parent
         response = b'{"answers":[{"type":"predicate","probability":0.95},{"type":"refusal"},{"type":"refusal"}],"usage":{"total_tokens":20}}'
         output = io.StringIO()
-        with patch.dict("os.environ", {"OPENAI_API_KEY": "synthetic-key"}), patch("decisions.api.urlopen", return_value=io.BytesIO(response)) as send, contextlib.redirect_stdout(output):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "synthetic-key"}), patch("decisions.client.Client._send", return_value=httpx.Response(200, content=response)) as send, contextlib.redirect_stdout(output):
             code = main([str(root / "examples/questions.toml"), str(root / "examples/questions.json"), "-r"])
         self.assertEqual(code, 0)
         self.assertEqual(output.getvalue(), response.decode() + "\n")
         import json
-        body = json.loads(send.call_args.args[0].data)
+        body = send.call_args.args[0]
         self.assertEqual(body["input"], (root / "examples/questions.json").read_text())
         self.assertEqual([q["name"] for q in body["questions"]], ["damaged", "severity", "department"])
 
     def test_invalid_question_file_is_usage_error(self):
-        with patch("decisions.files.Path.read_text", return_value="{"):
+        with patch("decisions.cli.files.Path.read_text", return_value="{"):
             code, output, diagnostics, request = self.run_main(["questions.json", "-t", "text"])
         self.assertEqual(code, 2)
         self.assertEqual(output, "")
@@ -288,7 +289,7 @@ class MainTests(unittest.TestCase):
     def test_broken_pipe_has_no_traceback(self):
         output = Mock()
         output.write.side_effect = BrokenPipeError()
-        with patch.dict("os.environ", {"OPENAI_API_KEY": "synthetic-key"}), patch("decisions.cli.request_decision", return_value=RAW), patch("sys.stdout", output), patch("decisions.cli.silence_broken_pipe") as silence:
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "synthetic-key"}), patch("decisions.cli.app.request_decision", return_value=RAW), patch("sys.stdout", output), patch("decisions.cli.app.silence_broken_pipe") as silence:
             self.assertEqual(main(["-p", "Q", "-t", "text"]), 0)
         silence.assert_called_once()
 

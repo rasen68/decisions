@@ -9,7 +9,7 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
-from . import __version__
+from .. import __version__
 from .api import DecisionError, request_decision
 from .evaluation import compile_expression
 from .files import load_questions, read_input

@@ -5,9 +5,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import decisions
-from decisions.cli import parse_arguments
-from decisions.files import load_questions, read_input
-from decisions.questions import QuestionError, validate_questions
+from decisions.cli.app import parse_arguments
+from decisions.cli.files import load_questions, read_input
+from decisions.cli.questions import QuestionError, validate_questions
 
 ROOT = Path(decisions.__file__).resolve().parent.parent
 

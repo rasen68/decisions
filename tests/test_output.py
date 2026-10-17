@@ -1,7 +1,7 @@
 import unittest
 
-from decisions.api import DecisionError
-from decisions.output import format_decision
+from decisions.cli.api import DecisionError
+from decisions.cli.output import format_decision
 
 
 class OutputTests(unittest.TestCase):

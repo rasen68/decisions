@@ -2,7 +2,7 @@ import contextlib
 import io
 import unittest
 
-from decisions.cli import parse_arguments
+from decisions.cli.app import parse_arguments
 
 
 class ArgumentsTests(unittest.TestCase):

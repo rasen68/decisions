@@ -1,159 +1,141 @@
 # decisions
 
-CLI to query [OpenAI Decisions API](https://developers.openai.com/api/docs/guides/decisions). Python >= 3.11.
+A Python library for asking classification and scoring questions through [OpenAI Decisions](https://developers.openai.com/api/docs/guides/decisions), [TypeSafe Jev](https://docs.typesafe.ai/), or a [Jeff](https://github.com/firelex/jeff) server. It provides a shared interface, typed answers, and synchronous and asynchronous clients, using HTTPX rather than depending on each provider's SDK.
 
-## Install
+Ask whether a statement is true, choose between options, or score input against ordered levels. Send one question at a time or several named questions in a single request.
 
-From this directory:
+The package also includes an OpenAI-only command-line tool. See the [CLI README](decisions/cli/README.md) for command-line installation, usage, graphical output, boolean gates, and conditional shell commands.
 
-```sh
-uv tool install .
-# Or:
-pipx install .
-```
+## Installation
 
-Set your API key as environment variable `OPENAI_API_KEY`. The Decisions API is in beta and only supports `gpt-6-luna` right now, but you can set `-m/--model` to anything else too (it won't work yet).
-
-## Basic usage
-
-Supply questions from either a `.json` or `.toml` file following the formats in `examples/`, or via flags (see below). Text comes from a plaintext file, stdin, or a single argument after `-t/--text`. Add local images with repeatable `-i/--image PATH`.
+Requires Python 3.11 or newer. From the repository root:
 
 ```sh
-decisions examples/questions.toml input.txt
-decisions examples/questions.json -t "The screen arrived broken."
+pip install .
 ```
+
+HTTPX is the only direct runtime dependency. Provider access requires the appropriate API credentials or a running Jeff server.
+
+## Quick start
+
+OpenAI is the default provider. Set `OPENAI_API_KEY`, then create a reusable client.
+
+We support single-question functions that return only the core result (probabilities, choice/score, confidence):
+
+```python
+from decisions import Client
+
+with Client() as client:
+    damaged = client.predicate(
+        "Is the product damaged?",
+        "The screen arrived broken.",
+    )
+    print(damaged.probability)
+
+    department = client.choice(
+        "Which department should handle this?",
+        "I was charged twice.",
+        choices={"billing": "Payments and refunds", "support": "Technical problems"},
+        # Or: just choices=["billing", "support"]
+    )
+    print(department.choice, department.confidence)
+    print(department.probabilities)
+
+    urgency = client.score(
+        "How urgent is this?",
+        "The app won't start.",
+        levels=["low", "medium", "high"],
+    )
+    print(urgency.score, urgency.confidence)
+    print(urgency.probabilities)
+```
+
+You can also use reusable question objects with `decide` to ask several questions about the same input in one request:
+
+```python
+from decisions import Choice, Client, Predicate, Score
+
+questions = {
+    "damaged": Predicate("Is the product damaged?"),
+    "department": Choice("Which department?", choices=["billing", "support"]),
+    "urgency": Score("How urgent?", levels=["low", "medium", "high"]),
+}
+
+with Client() as client:
+    result = client.decide(questions, "The screen arrived broken.")
+
+print(result["damaged"].probability)
+print(result["department"].choice)
+print(result["urgency"].score)
+print(result.provider, result.model)
+print(result.usage.input_tokens, result.usage.output_tokens)
+```
+
+Answers and probability mappings follow the request's question and option order. `Result.raw` retains the decoded provider response, including provider-specific metadata. The single-question methods return just the answer, without response metadata.
+
+## Providers and supported inputs
+
+Pass a provider configuration to the client:
+
+```python
+from decisions import Client
+from decisions.providers import Jeff, OpenAI, TypeSafe
+
+# Select one configuration for a client.
+provider = TypeSafe(model="jev-latest")
+# provider = OpenAI(model="gpt-6-luna")
+# provider = Jeff("http://localhost:8765", model="jeff-latest")
+
+with Client(provider) as client:
+    answer = client.predicate("Is this about billing?", "I was charged twice.")
+```
+
+For OpenAI and TypeSafe providers, set environment variables `OPENAI_API_KEY`/`TYPESAFE_API_KEY` respectively, or pass an api key as `api_key=` to the constructor.
 
 ## Images
 
-Images can be supplied alone or alongside text. Repeat `-i/--image` to send multiple images in order, up to 128 per request. PNG, JPEG, GIF, and WebP files are recognized by their contents and encoded as inline data URLs. The API validates and decodes the images.
+OpenAI Decisions and Jeff support image inputs, with or without text:
 
-```sh
-decisions -p "Is the product damaged?" -i front.jpg -i back.jpg
-decisions -p "Is the product damaged?" --image photo.png --text "Inspect the screen."
-decisions context.txt -p "Is the product damaged?" --image photo.png
-decisions -p "Is the product damaged?" -i photo.png -- -
+```python
+from decisions import Client, Image
+
+with Client() as client:
+    answer = client.predicate(
+        "Is the product damaged?",
+        images=[Image.from_path("photo.jpg")],
+    )
+    print(answer.probability)
 ```
 
-When images are supplied, text is optional and stdin is read only if you explicitly provide `-` as the input filename. Without images, stdin remains the default text source.
+`Image.from_path` infers MIME type from the filename, with an optional `mime_type=` override. For bytes, use `Image.from_bytes(data, mime_type="image/png")`. These helpers don't validate image contents.
 
-## Questions flags
+## Async usage
 
-Predicates take one question. Scores and choices take a question followed by one or more options. Repeat and mix the flags to ask multiple questions in one request. Answers will always appear in command order.
+`AsyncClient` has the same methods and input types as `Client`:
 
-```sh
-decisions -p "Does the customer report damage?" -t "The screen arrived broken."
+```python
+import asyncio
+from decisions import AsyncClient
 
-decisions input.txt \
-  -p "Does the customer report damage?" \
-  -s "How severe is the issue?" "low" "medium" "high" \
-  -c "Which department should handle this?" "billing" "support"
+async def main():
+    async with AsyncClient() as client:
+        answer = await client.predicate("Is this about billing?", "Refund please.")
+        print(answer.probability)
+
+asyncio.run(main())
 ```
 
-Note that the Decisions API requires that questions have names; if given from the command line, we just assign sequential names q1, q2, ...
-
-Score levels are ordered from lowest to highest. Option names become their descriptions unless you supply `name: description`. You can mix plain and described options. Flag options are strings; question files also support boolean choice values.
-
-```sh
-decisions -s "How severe is the issue?" \
-  "low: Cosmetic only" \
-  "medium: A workaround exists" \
-  "high: The product is unusable" \
-  -t "The app fails to open."
-```
-
-Put an input filename before the question flags. If it follows a score or choice's options, use `--` so it isn't interpreted as another option:
-
-```sh
-decisions -c "Which department?" "billing" "support" -- input.txt
-```
-
-## Output
-
-There are three outputs modes: standard, `-r/--raw`, and `-g/--graphic` (pretty).
-
-Standard output example:
-
-```text
-1. severity: How severe is the issue?
-  Score: 1.100 / 2
-  Confidence: 55.0%
-    0 (low): 10.0%
-    1 (medium): 70.0%
-    2 (high): 20.0%
-```
-
-Graphic output example:
-
-```text
-1. Does the customer report damage?
-  Probability: [███████████████████░] 95.0%
-```
-
-Raw output example:
-
-```json
-{
-  "model": "gpt-6-luna",
-  "answers": [
-    {"type": "predicate", "name": null, "probability": 0.95}
-  ],
-  "usage": {
-    "input_tokens": 42,
-    "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
-    "output_tokens": 0,
-    "output_tokens_details": {"reasoning_tokens": 0},
-    "total_tokens": 42
-  }
-}
-```
-
-## Boolean gates
-
-Use `--eval EXPR` to turn answers into an exit status based on a boolean expression. If given, instead of normal exit statuses, it returns 0 when the expression is true, 1 when false, and 2 for refusals and usage, configuration, file, API, or response errors.
-
-```sh
-decisions -p "Does the customer report damage?" -t "The screen arrived broken." \
-  --eval 'q1 >= 0.9' --quiet
-
-decisions examples/questions.toml input.txt --eval \
-  'damaged >= 0.9 and (severity >= 1.5 or department == "support" or department["billing"] >= 0.5)'
-```
-
-Reference questions by their names from a question file or by their position as `q1`, `q2`, and so on. Names used in expressions must be identifiers such as `damaged` or `needs_review`; use positional references for other names. Reference the probability of a predicate, the interpolated value of a score, or the maximum of a choice by its name. You can reference the confidence of a choice or score via `name.confidence`. You can reference the individual probability of an option of a choice via `name["option"]`.
-
-We support a Python-like expression grammar with `()`, `and/or/not`, `==/!=`, and `</<=/>/>=` for numeric fields. `not` binds before `and` which binds before `or`. Strings must be quoted.
-
-Answers still print by default, including when the expression is false. `--raw` and `--graphic` work with `--eval`. Use `-q/--quiet` to suppress answers; diagnostics still go to stderr. `--quiet` requires `--eval` and is mutually exclusive with `--raw` and `--graphic`.
-
-## Conditional shell commands
-
-Use `-x/--exec COMMAND` with `--eval` to run a shell command (using `/bin/sh`, so pipes and other shell expressions work inside of the command) only when the expression is true, with `{}` as a substitute for the input:
-
-```sh
-decisions -p "Is the product damaged?" --image photo.png \
-  --eval 'q1 >= 0.9' --exec 'cp -- {} review/' --quiet
-
-printf '%s' 'The screen arrived broken.' | decisions -p "Does this report damage?" \
-  --eval 'q1 >= 0.9' --exec 'notify-send -- {}' --quiet
-```
-
-Exec mode requires exactly one input source: stdin, one text file, `--text`, or one `--image`. If a file is given (text or image), `{}` will be its filename. If raw text is given (stdin or `--text`), `{}` will be that text. The command must contain `{}`, unquoted.
-
-Answers print and flush before execution unless `--quiet` is set. The command inherits stdin, stdout, and stderr; `--quiet` does not suppress its output.
-
-A false expression returns 1 without execution. Evaluation errors or refusals return 2 without execution. When the command runs, its exit status is returned instead of the gate status (signals use `128 + signal`). Failure to start the shell returns 2; interruption returns 130.
+Reuse clients to reuse their HTTP connection pools. Context managers close them automatically; otherwise call `client.close()` or `await client.aclose()`. Both clients default to a 60-second timeout, configurable with `timeout=` when constructing them.
 
 ## Development
+
+Run the tests from the repository root:
 
 ```sh
 python3 -B -m unittest discover -s tests -v
 ```
 
-Tests use synthetic keys and mocked HTTP. They make no live API calls.
-
-## AI use
-
-Code was primarily generated with AI. Documentation was primarily written by me, a human.
+Tests use synthetic credentials and mocked HTTP, not live provider calls.
 
 ## License
 
