@@ -25,15 +25,6 @@ def _configuration(provider: Provider) -> tuple[str, dict[str, str]]:
     return provider.base_url.rstrip("/") + provider.path, headers
 
 
-def _check_http_status(response: httpx.Response, provider: Provider) -> None:
-    if not response.is_success:
-        raise HTTPError(
-            status=response.status_code,
-            provider=provider.name,
-            req_id=response.headers.get("x-request-id"),
-        )
-
-
 class Client:
     """A reusable client for one provider. Close it or use a with block."""
 
@@ -57,6 +48,7 @@ class Client:
         body = build_request(self.provider, questions, state, images)
         try:
             response = self._send(body)
+
         # Basic error handling
         except httpx.TimeoutException as error:
             raise TimeoutError(f"{self.provider.name} request timed out") from error
@@ -64,12 +56,15 @@ class Client:
             raise ConnectionError(f"{self.provider.name} request failed") from error
         if not response.is_success:
             raise HTTPError(response.status_code, self.provider.name, response.headers.get("x-request-id"))
-        # Decode and return Result
+
+        # Make sure we have valid JSON
         try:
             raw = response.json()
-            return decode_result(self.provider, questions, raw)
         except ValueError as error:
             raise InvalidResponseError(f"{self.provider.name} returned an invalid response") from error
+
+        # Decode and return Result
+        return decode_result(self.provider, questions, raw)
 
     """ Simple single-question APIs"""
     def predicate(self,
@@ -131,6 +126,7 @@ class AsyncClient:
         body = build_request(self.provider, questions, state, images)
         try:
             response = await self._send(body)
+
         # Basic error handling
         except httpx.TimeoutException as error:
             raise TimeoutError(f"{self.provider.name} request timed out") from error
@@ -138,12 +134,15 @@ class AsyncClient:
             raise ConnectionError(f"{self.provider.name} request failed") from error
         if not response.is_success:
             raise HTTPError(response.status_code, self.provider.name, response.headers.get("x-request-id"))
-        # Decode and return Result
+
+        # Make sure we have valid JSON
         try:
             raw = response.json()
-            return decode_result(self.provider, questions, raw)
         except ValueError as error:
             raise InvalidResponseError(f"{self.provider.name} returned an invalid response") from error
+
+        # Decode and return Result
+        return decode_result(self.provider, questions, raw)
 
     """ Simple single-question APIs """
     async def predicate(self,
