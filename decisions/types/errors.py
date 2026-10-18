@@ -5,6 +5,14 @@ class DecisionsError(Exception):
     """Base class for decisions failures"""
 
 
+class ConnectionError(DecisionsError):
+    """A provider request failed before a response could be used."""
+
+
+class TimeoutError(ConnectionError):
+    """A provider request exceeded a transport timeout."""
+
+
 class HTTPError(DecisionsError):
     """Provider returned an unsuccessful HTTP response"""
 

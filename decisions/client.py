@@ -10,7 +10,8 @@ from .providers.conversion import build_request, decode_result
 from .providers import OpenAI, Provider
 from .types import (
     Choice, ChoiceAnswer, Choices, Image, Levels, Predicate, PredicateAnswer,
-    Question, Result, Score, ScoreAnswer, State, HTTPError,
+    Question, Result, Score, ScoreAnswer, State,
+    ConnectionError, HTTPError, TimeoutError,
 )
 
 
@@ -46,36 +47,66 @@ class Client:
     def _send(self, body: dict[str, Any]) -> httpx.Response:
         return self._http.post(self._url, json=body)
 
-    def decide(self, questions: Mapping[str, Question], state: State | None = None, *, images: Sequence[Image] = ()) -> Result:
-        response = self._send(build_request(self.provider, questions, state, images))
-        _check_http_status(response, self.provider)
+    def decide(self,
+               questions: Mapping[str, Question],
+               state: State | None = None,
+               *, images: Sequence[Image] = ()
+               ) -> Result:
+        """ Core decide function, translate questions -> request -> result"""
+
+        body = build_request(self.provider, questions, state, images)
+        try:
+            response = self._send(body)
+        # Basic error handling
+        except httpx.TimeoutException as error:
+            raise TimeoutError(f"{self.provider.name} request timed out") from error
+        except httpx.RequestError as error:
+            raise ConnectionError(f"{self.provider.name} request failed") from error
+        if not response.is_success:
+            raise HTTPError(response.status_code, self.provider.name, response.headers.get("x-request-id"))
+        # Decode and return Result
         return decode_result(self.provider, questions, response.json())
 
-    def predicate(self, question: str, state: State | None = None, *, images: Sequence[Image] = ()) -> PredicateAnswer:
+    """ Simple single-question APIs"""
+    def predicate(self,
+                  question: str,
+                  state: State | None = None,
+                  *, images: Sequence[Image] = ()
+                  ) -> PredicateAnswer:
         return cast(PredicateAnswer, self.decide({"answer": Predicate(question)}, state, images=images)["answer"])
 
-    noul = predicate
-
-    def choice(self, question: str, state: State | None = None, *, choices: Choices, images: Sequence[Image] = ()) -> ChoiceAnswer:
+    def choice(self,
+               question: str,
+               state: State | None = None,
+               *, choices: Choices,
+               images: Sequence[Image] = ()
+               ) -> ChoiceAnswer:
         return cast(ChoiceAnswer, self.decide({"answer": Choice(question, choices=choices)}, state, images=images)["answer"])
 
-    def score(self, question: str, state: State | None = None, *, levels: Levels, images: Sequence[Image] = ()) -> ScoreAnswer:
+    def score(self,
+              question: str,
+              state: State | None = None,
+              *, levels: Levels,
+              images: Sequence[Image] = ()) -> ScoreAnswer:
         return cast(ScoreAnswer, self.decide({"answer": Score(question, levels=levels)}, state, images=images)["answer"])
 
-    def close(self) -> None:
-        self._http.close()
+    # Alias function for noul
+    noul = predicate
 
+    """ Context manager helpers """
     def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc_info: Any) -> None:
-        self.close()
+        self._http.close()
 
 
 class AsyncClient:
     """An async client using the same wire conversion as Client."""
 
-    def __init__(self, provider: Provider | None = None, *, timeout: float = 60.0):
+    def __init__(self,
+                 provider: Provider | None = None,
+                 *, timeout: float = 60.0):
         self.provider = provider if provider is not None else OpenAI()
         self._url, headers = _configuration(self.provider)
         self._http = httpx.AsyncClient(headers=headers, timeout=timeout)
@@ -83,30 +114,59 @@ class AsyncClient:
     async def _send(self, body: dict[str, Any]) -> httpx.Response:
         return await self._http.post(self._url, json=body)
 
-    async def decide(self, questions: Mapping[str, Question], state: State | None = None, *, images: Sequence[Image] = ()) -> Result:
-        response = await self._send(build_request(self.provider, questions, state, images))
-        _check_http_status(response, self.provider)
+    async def decide(self,
+                     questions: Mapping[str, Question],
+                     state: State | None = None,
+                     *, images: Sequence[Image] = ()
+                     ) -> Result:
+        """ Core decide function, translate questions -> request -> result"""
+
+        body = build_request(self.provider, questions, state, images)
+        try:
+            response = await self._send(body)
+        # Basic error handling
+        except httpx.TimeoutException as error:
+            raise TimeoutError(f"{self.provider.name} request timed out") from error
+        except httpx.RequestError as error:
+            raise ConnectionError(f"{self.provider.name} request failed") from error
+        if not response.is_success:
+            raise HTTPError(response.status_code, self.provider.name, response.headers.get("x-request-id"))
+        # Decode and return Result
         return decode_result(self.provider, questions, response.json())
 
-    async def predicate(self, question: str, state: State | None = None, *, images: Sequence[Image] = ()) -> PredicateAnswer:
+    """ Simple single-question APIs """
+    async def predicate(self,
+                        question: str,
+                        state: State | None = None,
+                        *, images: Sequence[Image] = ()
+                        ) -> PredicateAnswer:
         result = await self.decide({"answer": Predicate(question)}, state, images=images)
         return cast(PredicateAnswer, result["answer"])
 
-    noul = predicate
-
-    async def choice(self, question: str, state: State | None = None, *, choices: Choices, images: Sequence[Image] = ()) -> ChoiceAnswer:
+    async def choice(self,
+                     question: str,
+                     state: State | None = None,
+                     *, choices: Choices,
+                     images: Sequence[Image] = ()
+                     ) -> ChoiceAnswer:
         result = await self.decide({"answer": Choice(question, choices=choices)}, state, images=images)
         return cast(ChoiceAnswer, result["answer"])
 
-    async def score(self, question: str, state: State | None = None, *, levels: Levels, images: Sequence[Image] = ()) -> ScoreAnswer:
+    async def score(self,
+                    question: str,
+                    state: State | None = None,
+                    *, levels: Levels,
+                    images: Sequence[Image] = ()
+                    ) -> ScoreAnswer:
         result = await self.decide({"answer": Score(question, levels=levels)}, state, images=images)
         return cast(ScoreAnswer, result["answer"])
 
-    async def aclose(self) -> None:
-        await self._http.aclose()
+    # Alias function for noul
+    noul = predicate
 
+    """ Context manager helpers"""
     async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, *exc_info: Any) -> None:
-        await self.aclose()
+        await self._http.aclose()
