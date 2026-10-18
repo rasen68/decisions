@@ -10,7 +10,7 @@ from .providers.conversion import build_request, decode_result
 from .providers import OpenAI, Provider
 from .types import (
     Choice, ChoiceAnswer, Choices, Image, Levels, Predicate, PredicateAnswer,
-    Question, Result, Score, ScoreAnswer, State,
+    Question, Result, Score, ScoreAnswer, State, HTTPError,
 )
 
 
@@ -24,10 +24,21 @@ def _configuration(provider: Provider) -> tuple[str, dict[str, str]]:
     return provider.base_url.rstrip("/") + provider.path, headers
 
 
+def _check_http_status(response: httpx.Response, provider: Provider) -> None:
+    if not response.is_success:
+        raise HTTPError(
+            status=response.status_code,
+            provider=provider.name,
+            req_id=response.headers.get("x-request-id"),
+        )
+
+
 class Client:
     """A reusable client for one provider. Close it or use a with block."""
 
-    def __init__(self, provider: Provider | None = None, *, timeout: float = 60.0):
+    def __init__(self,
+                 provider: Provider | None = None,
+                 *, timeout: float = 60.0):
         self.provider = provider if provider is not None else OpenAI()
         self._url, headers = _configuration(self.provider)
         self._http = httpx.Client(headers=headers, timeout=timeout)
@@ -35,13 +46,9 @@ class Client:
     def _send(self, body: dict[str, Any]) -> httpx.Response:
         return self._http.post(self._url, json=body)
 
-    def decide(self,
-               questions: Mapping[str, Question],
-               state: State | None = None,
-               *,
-               images: Sequence[Image] = (),
-               ) -> Result:
+    def decide(self, questions: Mapping[str, Question], state: State | None = None, *, images: Sequence[Image] = ()) -> Result:
         response = self._send(build_request(self.provider, questions, state, images))
+        _check_http_status(response, self.provider)
         return decode_result(self.provider, questions, response.json())
 
     def predicate(self, question: str, state: State | None = None, *, images: Sequence[Image] = ()) -> PredicateAnswer:
@@ -78,6 +85,7 @@ class AsyncClient:
 
     async def decide(self, questions: Mapping[str, Question], state: State | None = None, *, images: Sequence[Image] = ()) -> Result:
         response = await self._send(build_request(self.provider, questions, state, images))
+        _check_http_status(response, self.provider)
         return decode_result(self.provider, questions, response.json())
 
     async def predicate(self, question: str, state: State | None = None, *, images: Sequence[Image] = ()) -> PredicateAnswer:
