@@ -11,7 +11,7 @@ from .providers import OpenAI, Provider
 from .types import (
     Choice, ChoiceAnswer, Choices, Image, Levels, Predicate, PredicateAnswer,
     Question, Result, Score, ScoreAnswer, State,
-    ConnectionError, HTTPError, TimeoutError,
+    ConnectionError, HTTPError, InvalidResponseError, TimeoutError,
 )
 
 
@@ -65,7 +65,11 @@ class Client:
         if not response.is_success:
             raise HTTPError(response.status_code, self.provider.name, response.headers.get("x-request-id"))
         # Decode and return Result
-        return decode_result(self.provider, questions, response.json())
+        try:
+            raw = response.json()
+            return decode_result(self.provider, questions, raw)
+        except ValueError as error:
+            raise InvalidResponseError(f"{self.provider.name} returned an invalid response") from error
 
     """ Simple single-question APIs"""
     def predicate(self,
@@ -97,8 +101,11 @@ class Client:
     def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *exc_info: Any) -> None:
+    def close(self) -> None:
         self._http.close()
+
+    def __exit__(self, *exc_info: Any) -> None:
+        self.close()
 
 
 class AsyncClient:
@@ -132,7 +139,11 @@ class AsyncClient:
         if not response.is_success:
             raise HTTPError(response.status_code, self.provider.name, response.headers.get("x-request-id"))
         # Decode and return Result
-        return decode_result(self.provider, questions, response.json())
+        try:
+            raw = response.json()
+            return decode_result(self.provider, questions, raw)
+        except ValueError as error:
+            raise InvalidResponseError(f"{self.provider.name} returned an invalid response") from error
 
     """ Simple single-question APIs """
     async def predicate(self,
@@ -168,5 +179,8 @@ class AsyncClient:
     async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(self, *exc_info: Any) -> None:
+    async def aclose(self) -> None:
         await self._http.aclose()
+
+    async def __aexit__(self, *exc_info: Any) -> None:
+        await self.aclose()
