@@ -7,7 +7,7 @@ from typing import Any
 from .config import OpenAI, Provider
 from ..types import (
     Answer, Choice, ChoiceAnswer, Choices, Image, Levels, Predicate, PredicateAnswer,
-    InvalidResponseError, Question, Result, Score, ScoreAnswer, State, Usage,
+    InvalidResponseError, Question, RefusalAnswer, Result, Score, ScoreAnswer, State, Usage,
 )
 
 
@@ -141,6 +141,8 @@ def decode_score_answer(question: Score, answer: dict[str, Any], *, openai: bool
 
 
 def decode_answer(question: Question, answer: dict[str, Any], *, openai: bool) -> Answer:
+    if openai and answer["type"] == "refusal":
+        return RefusalAnswer()
     match question:
         case Predicate():
             field = "probability" if openai else "noul"
@@ -154,6 +156,68 @@ def decode_answer(question: Question, answer: dict[str, Any], *, openai: bool) -
 def _resp_assert(condition: bool):
     if not condition:
         raise InvalidResponseError
+
+def _validate_number(value: Any, maximum: int = 1) -> None:
+    _resp_assert(isinstance(value, (int, float)) and not isinstance(value, bool))
+    _resp_assert(0 <= value <= maximum)
+
+
+def _validate_probabilities(question: Choice | Score, answer: dict[str, Any], *, openai: bool) -> None:
+    options = option_pairs(question.choices if isinstance(question, Choice) else question.levels)
+    expected = [value for value, _ in options]
+    probabilities = answer.get("probabilities")
+
+    if openai:
+        _resp_assert(isinstance(probabilities, list))
+        _resp_assert(len(probabilities) == len(expected))
+        seen = set()
+        for entry in probabilities:
+            _resp_assert(isinstance(entry, dict))
+            if isinstance(question, Choice):
+                value = entry.get("value")
+                _resp_assert(type(value) in (str, bool))
+                key = (type(value), value)
+                _resp_assert(any(type(value) is type(option) and value == option for option in expected))
+            else:
+                value = entry.get("label")
+                _resp_assert(isinstance(value, str) and value in expected)
+                index = entry.get("value")
+                _resp_assert(isinstance(index, int) and not isinstance(index, bool))
+                _resp_assert(index == expected.index(value))
+                key = value
+            _resp_assert(key not in seen)
+            seen.add(key)
+            _validate_number(entry.get("probability"))
+    else:
+        _resp_assert(isinstance(probabilities, dict))
+        keys = expected if isinstance(question, Choice) else [str(index) for index in range(len(expected))]
+        _resp_assert(set(probabilities) == set(keys))
+        for value in probabilities.values():
+            _validate_number(value)
+
+
+def _validate_answer(question: Question, answer: dict[str, Any], *, openai: bool) -> None:
+    if openai and answer.get("type") == "refusal":
+        _resp_assert("name" in answer)
+        _resp_assert(answer["name"] is None or isinstance(answer["name"], str))
+        return
+
+    match question:
+        case Predicate():
+            _resp_assert(answer.get("type") == ("predicate" if openai else "noul"))
+            _validate_number(answer.get("probability" if openai else "noul"))
+        case Choice():
+            _resp_assert(answer.get("type") == "choice")
+            choice = answer.get("choice")
+            _resp_assert(any(type(choice) is type(option) and choice == option for option, _ in option_pairs(question.choices)))
+            _validate_number(answer.get("confidence"))
+            _validate_probabilities(question, answer, openai=openai)
+        case Score():
+            _resp_assert(answer.get("type") == "score")
+            _validate_number(answer.get("score"), len(question.levels) - 1)
+            _validate_number(answer.get("confidence"))
+            _validate_probabilities(question, answer, openai=openai)
+
 
 def _validate_response(provider: Provider, questions: Mapping[str, Question], raw: Any) -> None:
     """ Validation of the contracts/invariants we expect from provider responses """
@@ -172,6 +236,7 @@ def _validate_response(provider: Provider, questions: Mapping[str, Question], ra
     for index, name in enumerate(questions):
         answer = wire_answers[index] if isinstance(provider, OpenAI) else wire_answers[name]
         _resp_assert(isinstance(answer, dict))
+        _validate_answer(questions[name], answer, openai=isinstance(provider, OpenAI))
 
     _resp_assert(isinstance(raw.get("model"), str))
 

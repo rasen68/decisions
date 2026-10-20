@@ -21,7 +21,11 @@ class ScoreAnswer:
     confidence: float
     probabilities: dict[str, float]
 
-Answer = PredicateAnswer | ChoiceAnswer | ScoreAnswer
+@dataclass
+class RefusalAnswer:
+    explanation: str | None = None
+
+Answer = PredicateAnswer | ChoiceAnswer | ScoreAnswer | RefusalAnswer
 
 @dataclass
 class Usage:

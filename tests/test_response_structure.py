@@ -19,9 +19,9 @@ QUESTIONS = {"first": Predicate("Ready?"), "second": Predicate("Safe?")}
 
 def valid_response(provider):
     if isinstance(provider, OpenAI):
-        answers = [{"probability": 0.8}, {"probability": 0.2}]
+        answers = [{"type": "predicate", "probability": 0.8}, {"type": "predicate", "probability": 0.2}]
     else:
-        answers = {"second": {"noul": 0.2}, "first": {"noul": 0.8}}
+        answers = {"second": {"type": "noul", "noul": 0.2}, "first": {"type": "noul", "noul": 0.8}}
     return {
         "answers": answers,
         "model": "reported-model",

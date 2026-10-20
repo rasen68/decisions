@@ -127,6 +127,21 @@ asyncio.run(main())
 
 Reuse clients to reuse their HTTP connection pools. Context managers close them automatically; otherwise call `client.close()` or `await client.aclose()`. Both clients default to a 60-second timeout, configurable with `timeout=` when constructing them.
 
+## Invalid responses and refusals
+
+Both clients raise `decisions.InvalidResponseError` for malformed JSON or invalid response fields. Answers must match the requested question types. Probabilities and confidence must be finite numbers between zero and one; scores must be within the requested scale. Probability distributions must cover every option, but their sum needn't equal exactly one. Values aren't rounded or normalized.
+
+OpenAI can refuse individual questions. Such answers return `decisions.RefusalAnswer` rather than raising an exception, including from single-question methods and `noul`. Other answers in the same result remain available:
+
+```python
+if isinstance(answer, decisions.RefusalAnswer):
+    print("The model declined to answer.")
+else:
+    print(answer.probability)
+```
+
+`RefusalAnswer.explanation` is currently `None` because OpenAI's documented decision refusal contains no explanation. The original payload remains in `Result.raw`. TypeSafe and Jeff don't document refusal variants; those variants raise `decisions.InvalidResponseError`.
+
 ## Development
 
 Run the tests from the repository root:
