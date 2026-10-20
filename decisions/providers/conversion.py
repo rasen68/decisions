@@ -7,7 +7,7 @@ from typing import Any
 from .config import OpenAI, Provider
 from ..types import (
     Answer, Choice, ChoiceAnswer, Choices, Image, Levels, Predicate, PredicateAnswer,
-    Question, Result, Score, ScoreAnswer, State, Usage,
+    InvalidResponseError, Question, Result, Score, ScoreAnswer, State, Usage,
 )
 
 
@@ -150,7 +150,41 @@ def decode_answer(question: Question, answer: dict[str, Any], *, openai: bool) -
         case Score():
             return decode_score_answer(question, answer, openai=openai)
 
-def decode_result(provider: Provider, questions: Mapping[str, Question], raw: dict[str, Any]) -> Result:
+
+def _resp_assert(condition: bool):
+    if not condition:
+        raise InvalidResponseError
+
+def _validate_response(provider: Provider, questions: Mapping[str, Question], raw: Any) -> None:
+    """ Validation of the contracts/invariants we expect from provider responses """
+    # Response was a dict with fields we expect
+    _resp_assert(isinstance(raw, dict))
+
+    wire_answers = raw.get("answers")
+    if isinstance(provider, OpenAI):
+        _resp_assert(isinstance(wire_answers, list))
+        _resp_assert(len(wire_answers) == len(questions))
+    else:
+        _resp_assert(isinstance(wire_answers, dict))
+        _resp_assert(all(name in wire_answers for name in questions))
+
+    # Answers were dicts with fields we expect
+    for index, name in enumerate(questions):
+        answer = wire_answers[index] if isinstance(provider, OpenAI) else wire_answers[name]
+        _resp_assert(isinstance(answer, dict))
+
+    _resp_assert(isinstance(raw.get("model"), str))
+
+    usage = raw.get("usage")
+    _resp_assert(isinstance(usage, dict))
+    for field in ("input_tokens", "output_tokens"):
+        value = usage.get(field)
+        _resp_assert(isinstance(value, int) and not isinstance(value, bool))
+        _resp_assert(value >= 0)
+
+
+def decode_result(provider: Provider, questions: Mapping[str, Question], raw: Any) -> Result:
+    _validate_response(provider, questions, raw)
     openai = isinstance(provider, OpenAI)
     wire_answers = raw["answers"]
     answers = {}
