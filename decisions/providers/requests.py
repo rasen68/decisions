@@ -6,6 +6,7 @@ from typing import Any
 
 from .config import OpenAI, Provider
 from ..types import Choice, Choices, Image, Levels, Predicate, Question, Score, State
+from ..types.inputs import validate_state
 from ..types.questions import validate_questions
 
 
@@ -76,7 +77,10 @@ def build_systemone_question(question: Question) -> dict[str, Any]:
 
 def build_request(provider: Provider, questions: Mapping[str, Question], state: State | None, images: Sequence[Image]) -> dict[str, Any]:
     validate_questions(questions)
+    validate_state(state)
     if isinstance(provider, OpenAI):
+        if state is not None and not isinstance(state, str):
+            raise ValueError("OpenAI state must be a string or None")
         return {
             "model": provider.model,
             "input": build_openai_input(state, images),
