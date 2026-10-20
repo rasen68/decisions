@@ -6,6 +6,7 @@ from typing import Any
 
 from .config import OpenAI, Provider
 from ..types import Choice, Choices, Image, Levels, Predicate, Question, Score, State
+from ..types.questions import validate_questions
 
 
 def option_pairs(options: Choices | Levels) -> list[tuple[Any, str]]:
@@ -74,6 +75,7 @@ def build_systemone_question(question: Question) -> dict[str, Any]:
 
 
 def build_request(provider: Provider, questions: Mapping[str, Question], state: State | None, images: Sequence[Image]) -> dict[str, Any]:
+    validate_questions(questions)
     if isinstance(provider, OpenAI):
         return {
             "model": provider.model,
