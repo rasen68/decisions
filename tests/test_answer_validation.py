@@ -168,13 +168,13 @@ class AnswerValidationTests(unittest.TestCase):
             self.reject(provider, question, {**answer, "score": 2.01})
 
     def test_invalid_later_answer_prevents_any_conversion(self):
-        from decisions.providers.conversion import decode_result
+        from decisions.providers.responses import decode_result
         from decisions import Predicate
         for provider in PROVIDERS:
             _, valid = question_and_answer(provider, "predicate")
             raw = {"model": "reported", "usage": {"input_tokens": 0, "output_tokens": 1},
                    "answers": [valid, {}] if isinstance(provider, OpenAI) else {"first": valid, "last": {}}}
-            with patch("decisions.providers.conversion.decode_answer") as decode:
+            with patch("decisions.providers.responses.decode_answer") as decode:
                 with self.assertRaises(InvalidResponseError):
                     decode_result(provider, {"first": Predicate("Ready?"), "last": Predicate("Safe?")}, raw)
                 decode.assert_not_called()

@@ -1,106 +1,13 @@
-"""Wire conversion shared by the synchronous and asynchronous clients."""
+"""Validate provider responses and decode ordered public answers."""
 
-import base64
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
 from .config import OpenAI, Provider
 from ..types import (
-    Answer, Choice, ChoiceAnswer, Choices, Image, Levels, Predicate, PredicateAnswer,
-    InvalidResponseError, Question, RefusalAnswer, Result, Score, ScoreAnswer, State, Usage,
+    Answer, Choice, ChoiceAnswer, Predicate, PredicateAnswer,
+    InvalidResponseError, Question, RefusalAnswer, Result, Score, ScoreAnswer, Usage,
 )
-
-
-def option_pairs(options: Choices | Levels) -> list[tuple[Any, str]]:
-    if isinstance(options, Mapping):
-        return list(options.items())
-    return [(value, str(value)) for value in options]
-
-
-def data_url(image: Image) -> str:
-    encoded = base64.b64encode(image.data).decode("ascii")
-    return f"data:{image.mime_type};base64,{encoded}"
-
-
-def _jeff_images(images: Sequence[Image]) -> dict[str, Any]:
-    return {"images": [data_url(image) for image in images]}
-
-
-_IMAGE_ENCODERS = {"jeff": _jeff_images}
-
-
-def build_openai_question(name: str, question: Question) -> dict[str, Any]:
-    wire: dict[str, Any] = {"name": name, "instructions": question.question}
-    match question:
-        case Predicate():
-            wire["type"] = "predicate"
-        case Choice():
-            wire["type"] = "choice"
-            wire["choices"] = [{"value": v, "description": d} for v, d in option_pairs(question.choices)]
-        case Score():
-            wire["type"] = "score"
-            wire["levels"] = [{"label": l, "description": d} for l, d in option_pairs(question.levels)]
-    return wire
-
-
-def build_openai_input(state: State | None, images: Sequence[Image]) -> Any:
-    if not images:
-        return state
-
-    parts = []
-    if state is not None:
-        parts.append({"type": "input_text", "text": state})
-
-    parts.extend(
-        {"type": "input_image", "image_url": data_url(image)}
-        for image in images
-    )
-
-    return [{"role": "user", "content": parts}]
-
-
-# TypeSafe Jev / Jeff
-def build_systemone_question(question: Question) -> dict[str, Any]:
-    wire: dict[str, Any] = {"instructions": question.question}
-
-    match question:
-        case Predicate():
-            wire["type"] = "noul"
-        case Choice():
-            wire["type"] = "choice"
-            wire["criteria"] = dict(option_pairs(question.choices))
-        case Score():
-            wire["type"] = "score"
-            wire["criteria"] = [d for _, d in option_pairs(question.levels)]
-
-    return wire
-
-
-def build_request(provider: Provider, questions: Mapping[str, Question], state: State | None, images: Sequence[Image]) -> dict[str, Any]:
-    if isinstance(provider, OpenAI):
-        return {
-            "model": provider.model,
-            "input": build_openai_input(state, images),
-            "questions": [
-                build_openai_question(name, question)
-                for name, question in questions.items()
-            ],
-        }
-
-    request = {
-        "model": provider.model,
-        "state": "" if state is None else state,
-        "questions": {
-            name: build_systemone_question(question)
-            for name, question in questions.items()
-        },
-    }
-    if images:
-        request.update(_IMAGE_ENCODERS[provider.name](images))
-    return request
-
-
-# Response conversion into public values and request ordering.
 
 
 def decode_choice_answer(question: Choice, answer: dict[str, Any], *, openai: bool) -> ChoiceAnswer:
@@ -111,14 +18,14 @@ def decode_choice_answer(question: Choice, answer: dict[str, Any], *, openai: bo
 
     ordered_probabilities = {
         value: probabilities[value]
-        for value, _ in option_pairs(question.choices)
+        for value in question.choices
     }
 
     return ChoiceAnswer(choice=answer["choice"], confidence=answer["confidence"], probabilities=ordered_probabilities)
 
 
 def decode_score_answer(question: Score, answer: dict[str, Any], *, openai: bool) -> ScoreAnswer:
-    labels = [label for label, _ in option_pairs(question.levels)]
+    labels = list(question.levels)
 
     if openai:
         probabilities = {
@@ -157,14 +64,14 @@ def _resp_assert(condition: bool):
     if not condition:
         raise InvalidResponseError
 
+
 def _validate_number(value: Any, maximum: int = 1) -> None:
     _resp_assert(isinstance(value, (int, float)) and not isinstance(value, bool))
     _resp_assert(0 <= value <= maximum)
 
 
 def _validate_probabilities(question: Choice | Score, answer: dict[str, Any], *, openai: bool) -> None:
-    options = option_pairs(question.choices if isinstance(question, Choice) else question.levels)
-    expected = [value for value, _ in options]
+    expected = list(question.choices if isinstance(question, Choice) else question.levels)
     probabilities = answer.get("probabilities")
 
     if openai:
@@ -209,7 +116,7 @@ def _validate_answer(question: Question, answer: dict[str, Any], *, openai: bool
         case Choice():
             _resp_assert(answer.get("type") == "choice")
             choice = answer.get("choice")
-            _resp_assert(any(type(choice) is type(option) and choice == option for option, _ in option_pairs(question.choices)))
+            _resp_assert(any(type(choice) is type(option) and choice == option for option in question.choices))
             _validate_number(answer.get("confidence"))
             _validate_probabilities(question, answer, openai=openai)
         case Score():

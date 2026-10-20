@@ -3,7 +3,8 @@ from pathlib import Path
 import unittest
 
 from decisions import Choice, Image, Noul, Predicate, Score
-from decisions.providers.conversion import build_request, decode_result
+from decisions.providers.requests import build_request
+from decisions.providers.responses import decode_result
 from decisions.providers import Jeff, OpenAI, TypeSafe
 
 

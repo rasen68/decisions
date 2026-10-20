@@ -13,6 +13,14 @@ class PackageLayoutTests(unittest.TestCase):
         self.assertIs(Noul, Predicate)
         self.assertIs(decisions.Noul, Predicate)
 
+    def test_clients_use_separate_request_and_response_modules(self):
+        from decisions import client
+        from decisions.providers.requests import build_request
+        from decisions.providers.responses import decode_result
+
+        self.assertIs(client.build_request, build_request)
+        self.assertIs(client.decode_result, decode_result)
+
     def test_provider_exports_and_cli_entry_point(self):
         self.assertEqual(OpenAI().name, "openai")
         self.assertEqual(TypeSafe().name, "typesafe")

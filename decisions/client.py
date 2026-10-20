@@ -6,7 +6,8 @@ from typing import Any, Self, cast
 
 import httpx
 
-from .providers.conversion import build_request, decode_result
+from .providers.requests import build_request
+from .providers.responses import decode_result
 from .providers import OpenAI, Provider
 from .types import (
     Choice, ChoiceAnswer, Choices, Image, Levels, Predicate, PredicateAnswer,
