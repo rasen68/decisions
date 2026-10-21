@@ -144,13 +144,19 @@ else:
 
 ## Development
 
-Run the tests from the repository root:
+Run the tests (synthetic credentials & mocked HTTP) from the repo root:
 
 ```sh
 python3 -B -m unittest discover -s tests -v
 ```
 
-Tests use synthetic credentials and mocked HTTP, not live provider calls.
+Check typings from a consumer environment:
+
+```sh
+python3 -m venv .venv/typing-check
+.venv/typing-check/bin/python -m pip install '.[typing]'
+.venv/typing-check/bin/python scripts/check_typing.py
+```
 
 ## License
 

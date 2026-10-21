@@ -4,7 +4,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 ChoiceValue = str | bool
-Choices = list[ChoiceValue] | Mapping[ChoiceValue, str]
+# Lists and mapping keys are invariant, so include homogeneous choices explicitly.
+Choices = (
+    list[str] | list[bool] | list[ChoiceValue]
+    | Mapping[str, str] | Mapping[bool, str] | Mapping[ChoiceValue, str]
+)
 Levels = list[str] | Mapping[str, str]
 
 @dataclass
