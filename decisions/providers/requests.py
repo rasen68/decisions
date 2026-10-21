@@ -4,9 +4,9 @@ import base64
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .config import OpenAI, Provider
+from .config import Jeff, OpenAI, Provider, TypeSafe
 from ..types import Choice, Choices, Image, Levels, Predicate, Question, Score, State
-from ..types.inputs import validate_state
+from ..types.inputs import validate_images, validate_state
 from ..types.questions import validate_questions
 
 
@@ -78,17 +78,31 @@ def build_systemone_question(question: Question) -> dict[str, Any]:
 def build_request(provider: Provider, questions: Mapping[str, Question], state: State | None, images: Sequence[Image]) -> dict[str, Any]:
     validate_questions(questions)
     validate_state(state)
-    if isinstance(provider, OpenAI):
-        if state is not None and not isinstance(state, str):
-            raise ValueError("OpenAI state must be a string or None")
-        return {
-            "model": provider.model,
-            "input": build_openai_input(state, images),
-            "questions": [
-                build_openai_question(name, question)
-                for name, question in questions.items()
-            ],
-        }
+    validate_images(images)
+    match provider:
+        case TypeSafe():
+            if images:
+                raise ValueError("TypeSafe adapter does not support images")
+        case Jeff():
+            if any(image.mime_type == "image/gif" for image in images):
+                raise ValueError("Jeff does not support GIF images")
+        case OpenAI():
+            if state is not None and not isinstance(state, str):
+                raise ValueError("OpenAI state must be a string or None")
+            # OpenAI returns early
+            return {
+                "model": provider.model,
+                "input": build_openai_input(state, images),
+                "questions": [
+                    build_openai_question(name, question)
+                    for name, question in questions.items()
+                ],
+            }
+
+    # Only OpenAI supports boolean choices
+    for question in questions.values():
+        if isinstance(question, Choice) and any(isinstance(value, bool) for value in question.choices):
+            raise ValueError("This provider does not support boolean choices")
 
     request = {
         "model": provider.model,

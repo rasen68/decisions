@@ -1,10 +1,11 @@
 """State and images shared by the supported providers."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 import math
 import mimetypes
 from pathlib import Path
-from typing import TypeAlias, cast
+from typing import TypeAlias
 
 JSONValue: TypeAlias = (
     str | int | float | bool | None
@@ -54,10 +55,38 @@ class Image:
     data: bytes
     mime_type: str
 
+    def __post_init__(self) -> None:
+        validate_image(self)
+
     @classmethod
     def from_path(cls, path: str | Path, *, mime_type: str | None = None) -> "Image":
-        return cls(Path(path).read_bytes(), mime_type if mime_type is not None else cast(str, mimetypes.guess_type(str(path))[0]))
+        data = Path(path).read_bytes()
+        if mime_type is None:
+            mime_type = mimetypes.guess_type(str(path))[0]
+            if mime_type is None:
+                raise ValueError("Cannot infer image MIME type from filename")
+        return cls(data, mime_type)
 
     @classmethod
     def from_bytes(cls, data: bytes, *, mime_type: str) -> "Image":
         return cls(data, mime_type)
+
+
+def validate_image(image: Image) -> None:
+    if not isinstance(image, Image):
+        raise TypeError("Images must contain Image objects")
+    if not isinstance(image.data, bytes):
+        raise TypeError("Image data must be bytes")
+    if not image.data:
+        raise ValueError("Image data must not be empty")
+    if not isinstance(image.mime_type, str):
+        raise TypeError("Image MIME type must be a string")
+    if image.mime_type not in {"image/png", "image/jpeg", "image/webp", "image/gif"}:
+        raise ValueError("Unsupported image MIME type")
+
+
+def validate_images(images: Sequence[Image]) -> None:
+    if not isinstance(images, Sequence) or isinstance(images, (str, bytes, bytearray)):
+        raise TypeError("Images must be a sequence of Image objects")
+    for image in images:
+        validate_image(image)

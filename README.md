@@ -107,7 +107,7 @@ with Client() as client:
     print(answer.probability)
 ```
 
-`Image.from_path` infers MIME type from the filename, with an optional `mime_type=` override. For bytes, use `Image.from_bytes(data, mime_type="image/png")`. These helpers don't validate image contents.
+`Image.from_path` infers MIME type from the filename, with an optional `mime_type=` override. Unknown inference raises `ValueError`. For bytes, use `Image.from_bytes(data, mime_type="image/png")`.
 
 ## Async usage
 
