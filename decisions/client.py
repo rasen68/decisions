@@ -41,9 +41,13 @@ class Client:
     def __init__(self,
                  provider: Provider | None = None,
                  *, timeout: float = 60.0):
-        self.provider = provider if provider is not None else OpenAI()
+        self._provider = provider if provider is not None else OpenAI()
         self._url, headers = _configuration(self.provider)
         self._http = httpx.Client(headers=headers, timeout=timeout)
+
+    @property
+    def provider(self) -> Provider:
+        return self._provider
 
     def _send(self, body: dict[str, Any]) -> httpx.Response:
         return self._http.post(self._url, json=body)
@@ -119,9 +123,13 @@ class AsyncClient:
     def __init__(self,
                  provider: Provider | None = None,
                  *, timeout: float = 60.0):
-        self.provider = provider if provider is not None else OpenAI()
+        self._provider = provider if provider is not None else OpenAI()
         self._url, headers = _configuration(self.provider)
         self._http = httpx.AsyncClient(headers=headers, timeout=timeout)
+
+    @property
+    def provider(self) -> Provider:
+        return self._provider
 
     async def _send(self, body: dict[str, Any]) -> httpx.Response:
         return await self._http.post(self._url, json=body)

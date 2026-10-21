@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import ClassVar
 
-@dataclass
+@dataclass(frozen=True)
 class OpenAI:
     api_key: str | None = field(default=None, repr=False)
     model: str = "gpt-6-luna"
@@ -12,7 +12,7 @@ class OpenAI:
     path: ClassVar[str] = "/decisions"
     key_env: ClassVar[str] = "OPENAI_API_KEY"
 
-@dataclass
+@dataclass(frozen=True)
 class TypeSafe:
     api_key: str | None = field(default=None, repr=False)
     model: str = "jev-latest"
@@ -21,7 +21,7 @@ class TypeSafe:
     path: ClassVar[str] = "/systemone"
     key_env: ClassVar[str] = "TYPESAFE_API_KEY"
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, frozen=True)
 class Jeff:
     base_url: str = field(kw_only=False)
     model: str = "jeff-latest"
