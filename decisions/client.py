@@ -20,6 +20,15 @@ def _configuration(provider: Provider) -> tuple[str, dict[str, str]]:
     key = provider.api_key
     if key is None and provider.key_env is not None:
         key = os.environ.get(provider.key_env)
+    # Basic key checks
+    if key is None:
+        if provider.key_env is not None:
+            raise ValueError(f"{provider.name} requires an API key")
+    elif not isinstance(key, str):
+        raise TypeError("API key must be a string")
+    elif not key.strip():
+        raise ValueError("API key must not be blank")
+    # Make headers
     headers = {"Accept": "application/json"}
     if key is not None:
         headers["Authorization"] = f"Bearer {key}"

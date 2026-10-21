@@ -5,7 +5,7 @@ from typing import ClassVar
 
 @dataclass
 class OpenAI:
-    api_key: str | None = None
+    api_key: str | None = field(default=None, repr=False)
     model: str = "gpt-6-luna"
     base_url: str = "https://api.openai.com/v1"
     name: ClassVar[str] = "openai"
@@ -14,7 +14,7 @@ class OpenAI:
 
 @dataclass
 class TypeSafe:
-    api_key: str | None = None
+    api_key: str | None = field(default=None, repr=False)
     model: str = "jev-latest"
     base_url: str = "https://api.typesafe.ai/v1"
     name: ClassVar[str] = "typesafe"
@@ -25,7 +25,7 @@ class TypeSafe:
 class Jeff:
     base_url: str = field(kw_only=False)
     model: str = "jeff-latest"
-    api_key: str | None = None
+    api_key: str | None = field(default=None, repr=False)
     name: ClassVar[str] = "jeff"
     path: ClassVar[str] = "/v1/systemone"
     key_env: ClassVar[None] = None
