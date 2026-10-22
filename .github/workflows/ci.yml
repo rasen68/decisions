@@ -1,0 +1,32 @@
+name: Library checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    name: Python ${{ matrix.python }} / ${{ matrix.httpx }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+        httpx: ["httpx==0.27.0", "httpx>=0.27,<1"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Install verification tools and selected HTTPX
+        run: python -m pip install --upgrade 'build>=1.2,<2' '.[typing]' '${{ matrix.httpx }}'
+      - name: Test source with socket connections blocked
+        run: python -B scripts/test_offline.py
+      - name: Build sdist and verify its installed wheel
+        run: python -B scripts/verify_install.py --httpx '${{ matrix.httpx }}'

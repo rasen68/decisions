@@ -7,7 +7,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import decisions
 import httpx
 
 from decisions.cli.api import DecisionError
@@ -146,7 +145,7 @@ class MainTests(unittest.TestCase):
 
     def test_named_mixed_gate_and_out_of_domain_choice(self):
         import json
-        root = Path(decisions.__file__).resolve().parent.parent
+        root = Path(__file__).resolve().parents[1]
         response = {"answers": [
             {"type": "predicate", "probability": 0.95},
             {"type": "score", "score": 1.5, "confidence": 0.8, "probabilities": [
@@ -266,7 +265,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(output, "")
 
     def test_question_file_and_input_file_through_http_layer(self):
-        root = Path(decisions.__file__).resolve().parent.parent
+        root = Path(__file__).resolve().parents[1]
         response = b'{"answers":[{"type":"predicate","probability":0.95},{"type":"refusal"},{"type":"refusal"}],"usage":{"total_tokens":20}}'
         output = io.StringIO()
         with patch.dict("os.environ", {"OPENAI_API_KEY": "synthetic-key"}), patch("decisions.client.Client._send", return_value=httpx.Response(200, content=response)) as send, contextlib.redirect_stdout(output):

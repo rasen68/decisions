@@ -144,18 +144,21 @@ else:
 
 ## Development
 
-Run the tests (synthetic credentials & mocked HTTP) from the repo root:
+Create a verification environment from the repo root:
 
 ```sh
-python3 -B -m unittest discover -s tests -v
+python3 -m venv .venv/checks
+.venv/checks/bin/python -m pip install '.[typing]' 'build>=1.2,<2'
+.venv/checks/bin/python -B scripts/test_offline.py
 ```
 
-Check typings from a consumer environment:
+Tests use synthetic credentials and mocked HTTP. The runner blocks socket connections and fails if it discovers no tests.
+
+Build an sdist, build its wheel, and verify a fresh installation:
 
 ```sh
-python3 -m venv .venv/typing-check
-.venv/typing-check/bin/python -m pip install '.[typing]'
-.venv/typing-check/bin/python scripts/check_typing.py
+.venv/checks/bin/python scripts/verify_install.py
+.venv/checks/bin/python scripts/verify_install.py --httpx 'httpx==0.27.0'
 ```
 
 ## License
