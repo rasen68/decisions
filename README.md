@@ -150,9 +150,12 @@ Create a verification environment from the repo root:
 python3 -m venv .venv/checks
 .venv/checks/bin/python -m pip install '.[typing]' 'build>=1.2,<2'
 .venv/checks/bin/python -B scripts/test_offline.py
+.venv/checks/bin/python -B scripts/check_composition_typing.py
 ```
 
 Tests use synthetic credentials and mocked HTTP. The runner blocks socket connections and fails if it discovers no tests.
+
+Provider configurations resolve to internal typed callable-based integrations in `decisions/providers/integrations.py`. Input rules, question/input encoders, request assembly, HTTP binding and response handling compose independently. Both clients execute the same prepared-request type. These are internal contracts, not a public plugin API. The composition typing check verifies the registrations and rejects deliberately incompatible component examples.
 
 Build an sdist, build its wheel, and verify a fresh installation:
 

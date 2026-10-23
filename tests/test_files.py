@@ -4,12 +4,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import decisions
 from decisions.cli.app import parse_arguments
 from decisions.cli.files import load_questions, read_input
 from decisions.cli.questions import QuestionError, validate_questions
 
-ROOT = Path(decisions.__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class FilesTests(unittest.TestCase):

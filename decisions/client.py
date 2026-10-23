@@ -6,8 +6,8 @@ from typing import Any, Self, cast
 
 import httpx
 
-from .providers.requests import build_request
-from .providers.responses import decode_result
+from .providers.composition import PreparedRequest, PublicRequest, Target
+from .providers.integrations import resolve
 from .providers import OpenAI, Provider
 from .types import (
     Choice, ChoiceAnswer, Choices, Image, Levels, Predicate, PredicateAnswer,
@@ -43,13 +43,16 @@ class Client:
                  *, timeout: float = 60.0):
         self._provider = provider if provider is not None else OpenAI()
         self._url, headers = _configuration(self.provider)
+        self._target = Target(self.provider.name, self.provider.model, self._url, headers)
         self._http = httpx.Client(headers=headers, timeout=timeout)
 
     @property
     def provider(self) -> Provider:
         return self._provider
 
-    def _send(self, body: dict[str, Any]) -> httpx.Response:
+    def _send(self, body: dict[str, Any] | PreparedRequest[dict[str, Any]]) -> httpx.Response:
+        if isinstance(body, PreparedRequest):
+            return self._http.request(body.method, body.url, headers=body.headers, json=body.body)
         return self._http.post(self._url, json=body)
 
     def decide(self,
@@ -59,9 +62,11 @@ class Client:
                ) -> Result:
         """ Core decide function, translate questions -> request -> result"""
 
-        body = build_request(self.provider, questions, state, images)
+        integration = resolve(self.provider)
+        request = PublicRequest(questions, state, images)
+        prepared = integration.prepare(request, self._target)
         try:
-            response = self._send(body)
+            response = self._send(prepared)
 
         # Basic error handling
         except httpx.TimeoutException as error:
@@ -78,7 +83,7 @@ class Client:
             raise InvalidResponseError(f"{self.provider.name} returned an invalid response") from error
 
         # Decode and return Result
-        return decode_result(self.provider, questions, raw)
+        return integration.response.decode(request, self._target, raw)
 
     """ Simple single-question APIs"""
     def predicate(self,
@@ -125,13 +130,16 @@ class AsyncClient:
                  *, timeout: float = 60.0):
         self._provider = provider if provider is not None else OpenAI()
         self._url, headers = _configuration(self.provider)
+        self._target = Target(self.provider.name, self.provider.model, self._url, headers)
         self._http = httpx.AsyncClient(headers=headers, timeout=timeout)
 
     @property
     def provider(self) -> Provider:
         return self._provider
 
-    async def _send(self, body: dict[str, Any]) -> httpx.Response:
+    async def _send(self, body: dict[str, Any] | PreparedRequest[dict[str, Any]]) -> httpx.Response:
+        if isinstance(body, PreparedRequest):
+            return await self._http.request(body.method, body.url, headers=body.headers, json=body.body)
         return await self._http.post(self._url, json=body)
 
     async def decide(self,
@@ -141,9 +149,11 @@ class AsyncClient:
                      ) -> Result:
         """ Core decide function, translate questions -> request -> result"""
 
-        body = build_request(self.provider, questions, state, images)
+        integration = resolve(self.provider)
+        request = PublicRequest(questions, state, images)
+        prepared = integration.prepare(request, self._target)
         try:
-            response = await self._send(body)
+            response = await self._send(prepared)
 
         # Basic error handling
         except httpx.TimeoutException as error:
@@ -160,7 +170,7 @@ class AsyncClient:
             raise InvalidResponseError(f"{self.provider.name} returned an invalid response") from error
 
         # Decode and return Result
-        return decode_result(self.provider, questions, raw)
+        return integration.response.decode(request, self._target, raw)
 
     """ Simple single-question APIs """
     async def predicate(self,

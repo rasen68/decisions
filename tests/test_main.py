@@ -288,6 +288,7 @@ class MainTests(unittest.TestCase):
     def test_broken_pipe_has_no_traceback(self):
         output = Mock()
         output.write.side_effect = BrokenPipeError()
+        output.fileno.side_effect = io.UnsupportedOperation
         with patch.dict("os.environ", {"OPENAI_API_KEY": "synthetic-key"}), patch("decisions.cli.app.request_decision", return_value=RAW), patch("sys.stdout", output), patch("decisions.cli.app.silence_broken_pipe") as silence:
             self.assertEqual(main(["-p", "Q", "-t", "text"]), 0)
         silence.assert_called_once()

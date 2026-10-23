@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from typing import Any
 
-from .config import OpenAI, Provider
+from .config import Provider
 from ..types import (
     Answer, Choice, ChoiceAnswer, Predicate, PredicateAnswer,
     InvalidResponseError, Question, RefusalAnswer, Result, Score, ScoreAnswer, Usage,
@@ -126,13 +126,13 @@ def _validate_answer(question: Question, answer: dict[str, Any], *, openai: bool
             _validate_probabilities(question, answer, openai=openai)
 
 
-def _validate_response(provider: Provider, questions: Mapping[str, Question], raw: Any) -> None:
+def _validate_response(questions: Mapping[str, Question], raw: Any, *, openai: bool) -> None:
     """ Validation of the contracts/invariants we expect from provider responses """
     # Response was a dict with fields we expect
     _resp_assert(isinstance(raw, dict))
 
     wire_answers = raw.get("answers")
-    if isinstance(provider, OpenAI):
+    if openai:
         _resp_assert(isinstance(wire_answers, list))
         _resp_assert(len(wire_answers) == len(questions))
     else:
@@ -141,9 +141,9 @@ def _validate_response(provider: Provider, questions: Mapping[str, Question], ra
 
     # Answers were dicts with fields we expect
     for index, name in enumerate(questions):
-        answer = wire_answers[index] if isinstance(provider, OpenAI) else wire_answers[name]
+        answer = wire_answers[index] if openai else wire_answers[name]
         _resp_assert(isinstance(answer, dict))
-        _validate_answer(questions[name], answer, openai=isinstance(provider, OpenAI))
+        _validate_answer(questions[name], answer, openai=openai)
 
     _resp_assert(isinstance(raw.get("model"), str))
 
@@ -155,10 +155,8 @@ def _validate_response(provider: Provider, questions: Mapping[str, Question], ra
         _resp_assert(value >= 0)
 
 
-def decode_result(provider: Provider, questions: Mapping[str, Question], raw: Any) -> Result:
-    _validate_response(provider, questions, raw)
-    openai = isinstance(provider, OpenAI)
-    wire_answers = raw["answers"]
+def convert_result(provider: str, questions: Mapping[str, Question], payload: dict[str, Any], raw: Any, *, openai: bool) -> Result:
+    wire_answers = payload["answers"]
     answers = {}
 
     # OpenAI matches answers by position, Jev/Jeff use names
@@ -166,12 +164,20 @@ def decode_result(provider: Provider, questions: Mapping[str, Question], raw: An
         answer = wire_answers[index] if openai else wire_answers[name]
         answers[name] = decode_answer(question, answer, openai=openai)
 
-    usage = raw["usage"]
+    usage = payload["usage"]
 
     return Result(
         answers=answers,
-        provider=provider.name,
-        model=raw["model"],
+        provider=provider,
+        model=payload["model"],
         usage=Usage(usage["input_tokens"], usage["output_tokens"]),
         raw=raw,
     )
+
+
+def decode_result(provider: Provider, questions: Mapping[str, Question], raw: Any) -> Result:
+    from .composition import PublicRequest, Target
+    from .integrations import resolve
+
+    target = Target(provider.name, provider.model, provider.base_url.rstrip("/") + provider.path)
+    return resolve(provider).response.decode(PublicRequest(questions, None, ()), target, raw)

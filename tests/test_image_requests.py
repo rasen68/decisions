@@ -26,13 +26,13 @@ class ImageRequestTests(unittest.TestCase):
                     with patch.object(client, "_send", AsyncMock(return_value=response)) as send:
                         await getattr(client, method)(argument, state, images=images, **kwargs)
                         send.assert_awaited_once()
-                        return send.call_args.args[0]
+                        return send.call_args.args[0].body
             return asyncio.run(run())
         with Client(provider) as client:
             with patch.object(client, "_send", return_value=response) as send:
                 getattr(client, method)(argument, state, images=images, **kwargs)
                 send.assert_called_once()
-                return send.call_args.args[0]
+                return send.call_args.args[0].body
 
     def test_typesafe_adapter_rejects_images(self):
         self.reject(PROVIDERS[1], [Image(b"a", "image/png")], ValueError)
