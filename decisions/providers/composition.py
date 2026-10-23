@@ -101,7 +101,7 @@ class HTTPBinding:
                          if n.lower() not in AUTH)
         merged = merge_headers(defaults, headers)
         merged.update((n, v) for n, v in target.headers.items()
-                      if n.lower() not in AUTH)
+                      if n.lower() in AUTH)
 
         return PreparedRequest(self.method, target.url, merged, body)
 
