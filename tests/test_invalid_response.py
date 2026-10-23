@@ -8,6 +8,7 @@ import decisions
 from decisions import AsyncClient, Client, Predicate
 from decisions.providers import Jeff, OpenAI, TypeSafe
 from decisions.types import InvalidResponseError
+from decisions.providers.composition import PublicRequest
 
 
 PROVIDERS = (
@@ -74,7 +75,7 @@ class InvalidResponseTests(InvalidResponseAssertions, unittest.TestCase):
                 response = httpx.Response(200, json={})
                 with Client(PROVIDERS[0]) as client:
                     with patch.object(client, "_send", return_value=response):
-                        with patch("decisions.client.decode_result", side_effect=original):
+                        with patch("decisions.providers.composition.ResponsePipeline.decode", side_effect=original):
                             with self.assertRaises(error_type) as caught:
                                 client.decide(QUESTIONS)
                 self.assertIs(caught.exception, original)
@@ -86,9 +87,9 @@ class InvalidResponseTests(InvalidResponseAssertions, unittest.TestCase):
         with Client(PROVIDERS[0]) as client:
             with patch.object(client, "_send", return_value=response):
                 with patch.object(response, "json", return_value=raw):
-                    with patch("decisions.client.decode_result", return_value=result) as decode:
+                    with patch("decisions.providers.composition.ResponsePipeline.decode", return_value=result) as decode:
                         self.assertIs(client.decide(QUESTIONS), result)
-        decode.assert_called_once_with(PROVIDERS[0], QUESTIONS, raw)
+        decode.assert_called_once_with(PublicRequest(QUESTIONS, None, ()), client._target, raw)
         self.assertIs(decode.call_args.args[2], raw)
 
 
@@ -136,7 +137,7 @@ class AsyncInvalidResponseTests(
                 response = httpx.Response(200, json={})
                 async with AsyncClient(PROVIDERS[0]) as client:
                     with patch.object(client, "_send", AsyncMock(return_value=response)):
-                        with patch("decisions.client.decode_result", side_effect=original):
+                        with patch("decisions.providers.composition.ResponsePipeline.decode", side_effect=original):
                             with self.assertRaises(error_type) as caught:
                                 await client.decide(QUESTIONS)
                 self.assertIs(caught.exception, original)
@@ -148,9 +149,9 @@ class AsyncInvalidResponseTests(
         async with AsyncClient(PROVIDERS[0]) as client:
             with patch.object(client, "_send", AsyncMock(return_value=response)):
                 with patch.object(response, "json", return_value=raw):
-                    with patch("decisions.client.decode_result", return_value=result) as decode:
+                    with patch("decisions.providers.composition.ResponsePipeline.decode", return_value=result) as decode:
                         self.assertIs(await client.decide(QUESTIONS), result)
-        decode.assert_called_once_with(PROVIDERS[0], QUESTIONS, raw)
+        decode.assert_called_once_with(PublicRequest(QUESTIONS, None, ()), client._target, raw)
         self.assertIs(decode.call_args.args[2], raw)
 
 

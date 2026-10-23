@@ -53,7 +53,7 @@ class StateRequestTests(unittest.TestCase):
                         else:
                             await getattr(client, method)(argument, state=state, **kwargs)
                             send.assert_awaited_once()
-                            return send.call_args.args[0]
+                            return send.call_args.args[0].body
             return asyncio.run(run())
         with Client(provider) as client:
             with patch.object(client, "_send", return_value=response) as send:
@@ -64,7 +64,7 @@ class StateRequestTests(unittest.TestCase):
                 else:
                     getattr(client, method)(argument, state=state, **kwargs)
                     send.assert_called_once()
-                    return send.call_args.args[0]
+                    return send.call_args.args[0].body
 
     def assert_rejected(self, state, expected, providers=PROVIDERS):
         for provider in providers:
